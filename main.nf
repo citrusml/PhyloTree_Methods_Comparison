@@ -32,7 +32,7 @@ process RUN_PWA_NJ {
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("pwa_nj_eval.csv")
+    path("pwa_nj_D${dist}_L${len}_rep${rep}.csv")
 
     script:
     """
@@ -48,7 +48,7 @@ process RUN_PWA_NJ {
         --distance ${dist} \\
         --length ${len} \\
         --replicate ${rep} \\
-        --outcsv pwa_nj_eval.csv
+        --outcsv pwa_nj_D${dist}_L${len}_rep${rep}.csv
     """
 }
 
@@ -59,7 +59,7 @@ process RUN_MSA_NJ {
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("msa_nj_eval.csv")
+    path("msa_nj_D${dist}_L${len}_rep${rep}.csv")
 
     script:
     """
@@ -75,7 +75,7 @@ process RUN_MSA_NJ {
         --distance ${dist} \\
         --length ${len} \\
         --replicate ${rep} \\
-        --outcsv msa_nj_eval.csv
+        --outcsv msa_nj_D${dist}_L${len}_rep${rep}.csv
     """
 }
 
@@ -86,7 +86,7 @@ process RUN_MSA_ML {
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("msa_ml_eval.csv")
+    path("msa_ml_D${dist}_L${len}_rep${rep}.csv")
 
     script:
     """
@@ -104,7 +104,7 @@ process RUN_MSA_ML {
         --length ${len} \\
         --replicate ${rep} \\
         --json msa_ml_meta.json \\
-        --outcsv msa_ml_eval.csv
+        --outcsv msa_ml_D${dist}_L${len}_rep${rep}.csv
     """
 }
 

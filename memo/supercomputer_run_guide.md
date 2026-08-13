@@ -76,7 +76,7 @@ cd ~/PhyloTree_Methods_Comparison
 micromamba activate phylomethod_env
 
 # LSF スパコンプロファイルで全 2,500 条件を並列実行
-nextflow run main.nf -profile supercomputer
+nextflow run main.nf -profile supercomputer -bg > run_newxtfllw.log
 ```
 
 ### 2-2. 実行内容
