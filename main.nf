@@ -120,7 +120,7 @@ process COLLECT_AND_PLOT {
 
     script:
     """
-    cat ${csv_files} | awk 'NR==1 || \$0 !~ /^distance/' > benchmark_summary.csv
+    cat *.csv | awk 'NR==1 || \$0 !~ /^distance/' > benchmark_summary.csv
     python3 ${projectDir}/bin/plot_regime_map.py --csv benchmark_summary.csv --outdir .
     """
 }
