@@ -3,3 +3,4 @@
 /papers/*
 .DS_Store
 /bin/__pycache__
+/memo/*
