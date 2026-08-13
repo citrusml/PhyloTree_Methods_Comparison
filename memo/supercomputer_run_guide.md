@@ -149,13 +149,16 @@ Nextflow は自動でリジュームが可能です：
 nextflow run main.nf -profile supercomputer -resume
 ```
 
-### LSF キュー名を変更したい場合
+### LSF キュー名（`mafft`）について
 
-`nextflow.config` の `process.queue = 'normal'` を適切なキュー名に変更します：
+`nextflow.config` にスパコンの標準キュー **`queue = 'mafft'`** を設定済みです。通常は何も意識せずそのまま実行できます。必要に応じて `bqueues` で確認の上、別のキューを指定することも可能です：
 
 ```bash
-# 利用可能なキューの確認
+# 利用可能なキュー一覧の確認
 bqueues
+
+# 別のキューを指定して実行したい場合
+nextflow run main.nf -profile supercomputer --process.queue admin -resume
 ```
 
 ### メモリ不足エラーが出た場合
