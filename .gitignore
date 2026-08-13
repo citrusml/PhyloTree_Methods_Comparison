@@ -1,0 +1,5 @@
+/plan/*
+/results*
+/papers/*
+.DS_Store
+/bin/__pycache__
