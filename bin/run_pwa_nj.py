@@ -67,49 +67,96 @@ def get_sub_score(a, b):
     return LG_MATRIX.get(key, -3)
 
 def needleman_wunsch(seq1, seq2, gap_open=-10, gap_extend=-1):
-    """Needleman-Wunsch global alignment with affine gap penalty."""
+    """
+    Needleman-Wunsch global alignment with correct affine gap penalty.
+    Uses three DP tables (M, Ix, Iy) to properly distinguish gap-open from gap-extend.
+    A gap of length k costs: gap_open + k * gap_extend
+    """
     m, n = len(seq1), len(seq2)
-    # Standard dynamic programming table
-    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    NEG_INF = float('-inf')
+
+    # M[i][j]: best score ending with seq1[i] and seq2[j] aligned (match/mismatch)
+    # Ix[i][j]: best score ending with seq1[i] aligned to a gap (gap in seq2 = deletion)
+    # Iy[i][j]: best score ending with seq2[j] aligned to a gap (gap in seq1 = insertion)
+    M  = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
+    Ix = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
+    Iy = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
+
+    M[0][0] = 0.0
     for i in range(1, m + 1):
-        dp[i][0] = gap_open + (i - 1) * gap_extend
+        Ix[i][0] = gap_open + i * gap_extend
     for j in range(1, n + 1):
-        dp[0][j] = gap_open + (j - 1) * gap_extend
+        Iy[0][j] = gap_open + j * gap_extend
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            match = dp[i-1][j-1] + get_sub_score(seq1[i-1], seq2[j-1])
-            delete = dp[i-1][j] + (gap_extend if i > 1 else gap_open)
-            insert = dp[i][j-1] + (gap_extend if j > 1 else gap_open)
-            dp[i][j] = max(match, delete, insert)
+            s = get_sub_score(seq1[i-1], seq2[j-1])
+            M[i][j] = max(
+                M[i-1][j-1]  + s,
+                Ix[i-1][j-1] + s,
+                Iy[i-1][j-1] + s
+            )
+            Ix[i][j] = max(
+                M[i-1][j]  + gap_open + gap_extend,
+                Ix[i-1][j] + gap_extend
+            )
+            Iy[i][j] = max(
+                M[i][j-1]  + gap_open + gap_extend,
+                Iy[i][j-1] + gap_extend
+            )
 
-    # Traceback
+    # Traceback: determine terminal state
     align1, align2 = [], []
     i, j = m, n
-    while i > 0 and j > 0:
-        score = dp[i][j]
-        score_diag = dp[i-1][j-1]
-        if score == score_diag + get_sub_score(seq1[i-1], seq2[j-1]):
-            align1.append(seq1[i-1])
-            align2.append(seq2[j-1])
-            i -= 1
-            j -= 1
-        elif score == dp[i-1][j] + (gap_extend if i > 1 else gap_open):
-            align1.append(seq1[i-1])
-            align2.append('-')
-            i -= 1
-        else:
-            align1.append('-')
-            align2.append(seq2[j-1])
-            j -= 1
 
+    # Find best terminal state
+    terminal = max(
+        (M[m][n],  'M'),
+        (Ix[m][n], 'Ix'),
+        (Iy[m][n], 'Iy'),
+        key=lambda x: x[0]
+    )
+    state = terminal[1]
+
+    while i > 0 or j > 0:
+        if state == 'M':
+            s = get_sub_score(seq1[i-1], seq2[j-1])
+            if i > 0 and j > 0 and M[i][j] == M[i-1][j-1] + s:
+                align1.append(seq1[i-1]); align2.append(seq2[j-1])
+                i -= 1; j -= 1; state = 'M'
+            elif i > 0 and j > 0 and M[i][j] == Ix[i-1][j-1] + s:
+                align1.append(seq1[i-1]); align2.append(seq2[j-1])
+                i -= 1; j -= 1; state = 'Ix'
+            elif i > 0 and j > 0 and M[i][j] == Iy[i-1][j-1] + s:
+                align1.append(seq1[i-1]); align2.append(seq2[j-1])
+                i -= 1; j -= 1; state = 'Iy'
+            else:
+                break
+        elif state == 'Ix':
+            if i > 0 and Ix[i][j] == M[i-1][j] + gap_open + gap_extend:
+                align1.append(seq1[i-1]); align2.append('-')
+                i -= 1; state = 'M'
+            elif i > 0 and Ix[i][j] == Ix[i-1][j] + gap_extend:
+                align1.append(seq1[i-1]); align2.append('-')
+                i -= 1; state = 'Ix'
+            else:
+                break
+        elif state == 'Iy':
+            if j > 0 and Iy[i][j] == M[i][j-1] + gap_open + gap_extend:
+                align1.append('-'); align2.append(seq2[j-1])
+                j -= 1; state = 'M'
+            elif j > 0 and Iy[i][j] == Iy[i][j-1] + gap_extend:
+                align1.append('-'); align2.append(seq2[j-1])
+                j -= 1; state = 'Iy'
+            else:
+                break
+
+    # Handle remaining unaligned residues (leading gaps)
     while i > 0:
-        align1.append(seq1[i-1])
-        align2.append('-')
+        align1.append(seq1[i-1]); align2.append('-')
         i -= 1
     while j > 0:
-        align1.append('-')
-        align2.append(seq2[j-1])
+        align1.append('-'); align2.append(seq2[j-1])
         j -= 1
 
     return "".join(reversed(align1)), "".join(reversed(align2))
