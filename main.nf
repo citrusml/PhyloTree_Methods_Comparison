@@ -13,8 +13,6 @@ process SIMULATE_DATA {
 
     output:
     tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("seqs.fasta"), emit: sim_data
-    path("true_tree.nwk")
-    path("seqs.fasta")
 
     script:
     """
