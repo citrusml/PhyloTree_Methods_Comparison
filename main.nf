@@ -5,15 +5,13 @@ nextflow.enable.dsl=2
  */
 
 process SIMULATE_DATA {
-    tag { "D=${dist}_L=${len}_rep=${rep}" }
+    tag "D=${dist}_L=${len}_rep=${rep}"
 
     input:
     tuple val(dist), val(len), val(rep)
 
     output:
     tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("seqs.fasta"), emit: sim_data
-
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     script:
     """
@@ -32,7 +30,7 @@ process SIMULATE_DATA {
 }
 
 process RUN_PWA_NJ {
-    tag { "D=${dist}_L=${len}_rep=${rep}" }
+    tag "D=${dist}_L=${len}_rep=${rep}"
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
@@ -41,8 +39,6 @@ process RUN_PWA_NJ {
     path("pwa_nj_D${dist}_L${len}_rep${rep}.csv"), emit: csv
     path("pwa_nj.nwk")
     path("pwa_matrix.phylip")
-
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     script:
     """
@@ -68,7 +64,7 @@ process RUN_PWA_NJ {
 }
 
 process RUN_MSA_NJ {
-    tag { "D=${dist}_L=${len}_rep=${rep}" }
+    tag "D=${dist}_L=${len}_rep=${rep}"
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
@@ -78,8 +74,6 @@ process RUN_MSA_NJ {
     path("msa_nj.nwk")
     path("msa.fasta")
     path("msa_matrix.phylip")
-
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     script:
     """
@@ -104,7 +98,7 @@ process RUN_MSA_NJ {
 }
 
 process RUN_MSA_ML {
-    tag { "D=${dist}_L=${len}_rep=${rep}" }
+    tag "D=${dist}_L=${len}_rep=${rep}"
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
@@ -113,8 +107,6 @@ process RUN_MSA_ML {
     path("msa_ml_D${dist}_L${len}_rep${rep}.csv"), emit: csv
     path("msa_ml.nwk")
     path("msa_ml_meta.json")
-
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     script:
     """
