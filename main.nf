@@ -19,6 +19,10 @@ process SIMULATE_DATA {
         --distance ${dist} \\
         --length ${len} \\
         --num_taxa ${params.num_taxa} \\
+        --sigma ${params.sigma} \\
+        --model "${params.model}" \\
+        --alpha ${params.alpha} \\
+        --indel_rate ${params.indel_rate} \\
         --outtree true_tree.nwk \\
         --outfasta seqs.fasta \\
         --seed ${rep}
