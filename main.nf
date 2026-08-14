@@ -43,6 +43,10 @@ process RUN_PWA_NJ {
     python3 ${projectDir}/bin/run_pwa_nj.py \\
         --fasta ${fasta} \\
         --outtree pwa_nj.nwk \\
+        --gap_open ${params.gap_open} \\
+        --gap_extend ${params.gap_extend} \\
+        --dist_model ${params.dist_model} \\
+        --alpha ${params.alpha} \\
         --tool ${params.nj_tool}
 
     python3 ${projectDir}/bin/evaluate_trees.py \\
@@ -70,6 +74,8 @@ process RUN_MSA_NJ {
     python3 ${projectDir}/bin/run_msa_nj.py \\
         --fasta ${fasta} \\
         --outtree msa_nj.nwk \\
+        --dist_model ${params.dist_model} \\
+        --alpha ${params.alpha} \\
         --tool ${params.nj_tool}
 
     python3 ${projectDir}/bin/evaluate_trees.py \\

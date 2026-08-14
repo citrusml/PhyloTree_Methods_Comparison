@@ -1,0 +1,42 @@
+IQ-TREE version 3.1.3 for MacOS ARM 64-bit built Jul 26 2026
+Developed by Bui Quang Minh, Thomas Wong, Nhan Ly-Trong, Huaiyan Ren
+Contributed by Lam-Tung Nguyen, Dominik Schrempf, Chris Bielow,
+Olga Chernomor, Michael Woodhams, Diep Thi Hoang, Heiko Schmidt
+
+Host:    KazukiAibaranoMac-mini.local (SSE4.2, 24 GB RAM)
+Command: iqtree --alisim test.fa.alisim -m LG+G{1.0} --length 100 -t test.nwk --indel 0.05,0.05 --redo -seed 42
+Seed:    42 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Sat Aug 15 02:45:39 2026
+Kernel:  SSE2 - 1 threads (10 CPU cores detected)
+
+[Alignment Simulator] Executing
+ - Tree filepath: test.nwk
+ - Length of output sequences: 100
+ - Model: LG+G{1.0}
+ - Number of output datasets: 1
+ - Number of threads: 1
+SUBSTITUTION PROCESS
+--------------------
+
+Model of substitution: LG+G4
+
+State frequencies: (model)
+
+Model of rate heterogeneity: Gamma with 4 categories
+Gamma shape alpha: 1.000
+
+ Category  Relative_rate  Proportion
+  1         0.137          0.250
+  2         0.477          0.250
+  3         1.000          0.250
+  4         2.386          0.250
+Relative rates are computed as MEAN of the portion of the Gamma distribution falling in the category.
+
+An alignment written to test.fa.alisim.phy
+Unaligned sequences written to test.fa.alisim.unaligned.fa
+Screen log file: test.nwk.log
+[Alignment Simulator] Done
+Simulation CPU time: 0.004 sec (0h:0m:0s)
+Simulation wall-clock time: 0.009 sec (0h:0m:0s)
+
+Date and Time: Sat Aug 15 02:45:39 2026

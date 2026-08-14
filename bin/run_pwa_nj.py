@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 PWA + NJ Pipeline Script
-Performs pairwise Needleman-Wunsch alignment between amino acid sequences,
-calculates gap-eliminated Poisson evolutionary distances,
-and infers Neighbor-Joining (NJ) trees using RapidNJ or FastME (with python fallback).
+Performs pairwise Needleman-Wunsch alignment between amino acid sequences using BLOSUM62,
+calculates gap-eliminated Poisson evolutionary distances (with Gamma-Poisson distance option),
+and infers Neighbor-Joining (NJ) trees using RapidNJ or FastME.
 """
 
 import sys
@@ -12,66 +12,36 @@ import math
 import argparse
 import subprocess
 from Bio import SeqIO
+from Bio.Align import substitution_matrices
 
-# Standard LG Amino Acid Substitution Matrix (Le & Gascuel 2008 Log-Odds Scoring Matrix)
-LG_MATRIX = {
-    ('A','A'):6, ('A','R'):-4, ('A','N'):-5, ('A','D'):-4, ('A','C'):-3,
-    ('A','Q'):-4, ('A','E'):-4, ('A','G'):-2, ('A','H'):-5, ('A','I'):-6,
-    ('A','L'):-5, ('A','K'):-5, ('A','M'):-4, ('A','F'):-7, ('A','P'):-3,
-    ('A','S'):-1, ('A','T'):-2, ('A','W'):-9, ('A','Y'):-6, ('A','V'):-3,
-    ('R','R'):7, ('R','N'):-2, ('R','D'):-5, ('R','C'):-2, ('R','Q'):1,
-    ('R','E'):-3, ('R','G'):-6, ('R','H'):0, ('R','I'):-7, ('R','L'):-6,
-    ('R','K'):1, ('R','M'):-7, ('R','F'):-6, ('R','P'):-3, ('R','S'):-4,
-    ('R','T'):-4, ('R','W'):-2, ('R','Y'):-5, ('R','V'):-7, ('N','N'):8,
-    ('N','D'):2, ('N','C'):-3, ('N','Q'):-3, ('N','E'):-2, ('N','G'):-2,
-    ('N','H'):0, ('N','I'):-5, ('N','L'):-7, ('N','K'):-2, ('N','M'):-6,
-    ('N','F'):-7, ('N','P'):-3, ('N','S'):-1, ('N','T'):-3, ('N','W'):-5,
-    ('N','Y'):-3, ('N','V'):-6, ('D','D'):7, ('D','C'):-4, ('D','Q'):-2,
-    ('D','E'):2, ('D','G'):-5, ('D','H'):-4, ('D','I'):-8, ('D','L'):-8,
-    ('D','K'):-4, ('D','M'):-9, ('D','F'):-8, ('D','P'):-4, ('D','S'):-3,
-    ('D','T'):-4, ('D','W'):-9, ('D','Y'):-7, ('D','V'):-8, ('C','C'):12,
-    ('C','Q'):-5, ('C','E'):-4, ('C','G'):-4, ('C','H'):-5, ('C','I'):-4,
-    ('C','L'):-4, ('C','K'):-5, ('C','M'):-5, ('C','F'):-4, ('C','P'):-4,
-    ('C','S'):-3, ('C','T'):-4, ('C','W'):-3, ('C','Y'):-4, ('C','V'):-3,
-    ('Q','Q'):8, ('Q','E'):1, ('Q','G'):-5, ('Q','H'):0, ('Q','I'):-7,
-    ('Q','L'):-4, ('Q','K'):0, ('Q','M'):-6, ('Q','F'):-6, ('Q','P'):-2,
-    ('Q','S'):-4, ('Q','T'):-3, ('Q','W'):-6, ('Q','Y'):-4, ('Q','V'):-6,
-    ('E','E'):6, ('E','G'):-4, ('E','H'):-4, ('E','I'):-7, ('E','L'):-6,
-    ('E','K'):-1, ('E','M'):-7, ('E','F'):-8, ('E','P'):-3, ('E','S'):-3,
-    ('E','T'):-3, ('E','W'):-8, ('E','Y'):-5, ('E','V'):-7, ('G','G'):8,
-    ('G','H'):-5, ('G','I'):-8, ('G','L'):-8, ('G','K'):-6, ('G','M'):-8,
-    ('G','F'):-8, ('G','P'):-5, ('G','S'):-1, ('G','T'):-4, ('G','W'):-7,
-    ('G','Y'):-7, ('G','V'):-7, ('H','H'):9, ('H','I'):-6, ('H','L'):-5,
-    ('H','K'):-1, ('H','M'):-5, ('H','F'):-2, ('H','P'):-2, ('H','S'):-3,
-    ('H','T'):-3, ('H','W'):-2, ('H','Y'):1, ('H','V'):-6, ('I','I'):6,
-    ('I','L'):2, ('I','K'):-6, ('I','M'):0, ('I','F'):-1, ('I','P'):-8,
-    ('I','S'):-6, ('I','T'):-2, ('I','W'):-5, ('I','Y'):-4, ('I','V'):3,
-    ('L','L'):5, ('L','K'):-5, ('L','M'):2, ('L','F'):0, ('L','P'):-7,
-    ('L','S'):-5, ('L','T'):-4, ('L','W'):-4, ('L','Y'):-3, ('L','V'):1,
-    ('K','K'):7, ('K','M'):-6, ('K','F'):-7, ('K','P'):-2, ('K','S'):-4,
-    ('K','T'):-3, ('K','W'):-6, ('K','Y'):-5, ('K','V'):-6, ('M','M'):9,
-    ('M','F'):0, ('M','P'):-7, ('M','S'):-6, ('M','T'):-4, ('M','W'):-3,
-    ('M','Y'):-4, ('M','V'):0, ('F','F'):8, ('F','P'):-6, ('F','S'):-6,
-    ('F','T'):-5, ('F','W'):2, ('F','Y'):2, ('F','V'):-2, ('P','P'):8,
-    ('P','S'):-4, ('P','T'):-3, ('P','W'):-8, ('P','Y'):-6, ('P','V'):-7,
-    ('S','S'):7, ('S','T'):2, ('S','W'):-6, ('S','Y'):-4, ('S','V'):-5,
-    ('T','T'):7, ('T','W'):-6, ('T','Y'):-4, ('T','V'):-3, ('W','W'):12,
-    ('W','Y'):2, ('W','V'):-5, ('Y','Y'):9, ('Y','V'):-4, ('V','V'):6,
-}
+# Load standard BLOSUM62 substitution matrix
+try:
+    _BLOSUM62 = substitution_matrices.load("BLOSUM62")
+except Exception as e:
+    raise RuntimeError(f"Failed to load BLOSUM62 matrix from Biopython: {e}")
 
 def get_sub_score(a, b):
+    """Retrieves substitution score for amino acid pair (a, b) from BLOSUM62."""
     a, b = a.upper(), b.upper()
-    if a == b:
-        return LG_MATRIX.get((a, a), 6)
-    key = (a, b) if (a, b) in LG_MATRIX else (b, a)
-    return LG_MATRIX.get(key, -3)
+    try:
+        return _BLOSUM62[a, b]
+    except KeyError:
+        try:
+            return _BLOSUM62[b, a]
+        except KeyError:
+            return 4.0 if a == b else -4.0
 
-def needleman_wunsch(seq1, seq2, gap_open=-10, gap_extend=-1):
+def needleman_wunsch(seq1, seq2, gap_open=-10.0, gap_extend=-0.5):
     """
-    Needleman-Wunsch global alignment with correct affine gap penalty.
-    Uses three DP tables (M, Ix, Iy) to properly distinguish gap-open from gap-extend.
+    Needleman-Wunsch global alignment with affine gap penalty.
+    Uses three DP tables (M, Ix, Iy) to distinguish gap-open from gap-extend.
     A gap of length k costs: gap_open + k * gap_extend
+    Note: gap_open and gap_extend are assumed negative.
     """
+    # Ensure penalties are negative
+    gap_open = -abs(gap_open)
+    gap_extend = -abs(gap_extend)
+
     m, n = len(seq1), len(seq2)
     NEG_INF = float('-inf')
 
@@ -161,14 +131,8 @@ def needleman_wunsch(seq1, seq2, gap_open=-10, gap_extend=-1):
 
     return "".join(reversed(align1)), "".join(reversed(align2))
 
-def calculate_poisson_distance(aligned1, aligned2, alpha=None):
-    """
-    Computes Poisson evolutionary distance d from aligned sequence pair,
-    excluding gap sites (pairwise deletion).
-    d = -19/20 * ln(1 - 20/19 * p)
-    If alpha is specified, applies Gamma correction:
-    d = 19/20 * alpha * [(1 - 20/19 * p)^(-1/alpha) - 1]
-    """
+def compute_pairwise_p_distance(aligned1, aligned2):
+    """Calculates proportion of amino acid mismatches p excluding gap sites."""
     valid_sites = 0
     mismatches = 0
     for a, b in zip(aligned1, aligned2):
@@ -179,92 +143,86 @@ def calculate_poisson_distance(aligned1, aligned2, alpha=None):
             mismatches += 1
 
     if valid_sites == 0:
-        return 3.0  # Max distance fallback for 0 overlap
-
+        return 0.94  # Max proportion fallback for 0 overlap
     p = mismatches / valid_sites
-    # Cap p to avoid log domain error (20/19 * p < 1 => p < 0.95)
-    max_p = 0.94
-    p = min(p, max_p)
+    return min(p, 0.94)
 
+def calculate_poisson_distance(aligned1, aligned2):
+    """
+    Computes standard Poisson evolutionary distance d from aligned sequence pair,
+    excluding gap sites (pairwise deletion).
+    Formula: d = -19/20 * ln(1 - 20/19 * p)
+    """
+    p = compute_pairwise_p_distance(aligned1, aligned2)
     term = 1.0 - (20.0 / 19.0) * p
     if term <= 0.001:
         term = 0.001
-
-    if alpha is None:
-        d = - (19.0 / 20.0) * math.log(term)
-    else:
-        d = (19.0 / 20.0) * alpha * (math.pow(term, -1.0 / alpha) - 1.0)
-
+    d = - (19.0 / 20.0) * math.log(term)
     return max(0.0, d)
 
-def python_nj(dist_matrix, names):
-    """Pure Python Neighbor-Joining implementation as standalone fallback."""
-    N = len(names)
-    clusters = {i: names[i] for i in range(N)}
-    # Convert matrix to dictionary of distances
-    D = {}
-    for i in range(N):
-        for j in range(N):
-            D[i, j] = dist_matrix[i][j]
+def calculate_gamma_poisson_distance(aligned1, aligned2, alpha=1.0):
+    """
+    Computes Gamma-corrected Poisson evolutionary distance d from aligned sequence pair.
+    Formula: d = 19/20 * alpha * [(1 - 20/19 * p)^(-1/alpha) - 1]
+    """
+    if alpha is None or alpha <= 0:
+        return calculate_poisson_distance(aligned1, aligned2)
 
-    nodes = list(range(N))
-    next_node = N
+    p = compute_pairwise_p_distance(aligned1, aligned2)
+    term = 1.0 - (20.0 / 19.0) * p
+    if term <= 0.001:
+        term = 0.001
+    d = (19.0 / 20.0) * alpha * (math.pow(term, -1.0 / alpha) - 1.0)
+    return max(0.0, d)
 
-    tree_str = {}
-    for i in range(N):
-        tree_str[i] = names[i]
+def calculate_distance(aligned1, aligned2, dist_model="poisson", alpha=1.0):
+    """Dispatches to either Poisson or Gamma-Poisson distance."""
+    if dist_model == "gamma_poisson":
+        return calculate_gamma_poisson_distance(aligned1, aligned2, alpha=alpha)
+    return calculate_poisson_distance(aligned1, aligned2)
 
-    while len(nodes) > 2:
-        K = len(nodes)
-        # Compute r_i
-        r = {}
-        for i in nodes:
-            r[i] = sum(D[i, j] for j in nodes if j != i) / (K - 2)
+def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
+    """
+    Runs RapidNJ or FastME to infer NJ tree.
+    Strictly raises RuntimeError if tool is unavailable or fails.
+    """
+    if tool == "rapidnj":
+        try:
+            res = subprocess.run(
+                ["rapidnj", matrix_file, "-i", "pd", "-x", outtree_file],
+                capture_output=True, text=True
+            )
+            if res.returncode != 0 or not os.path.exists(outtree_file) or os.path.getsize(outtree_file) == 0:
+                raise RuntimeError(f"RapidNJ execution failed (exit code {res.returncode}):\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
+            return
+        except FileNotFoundError:
+            raise RuntimeError("RapidNJ executable 'rapidnj' was not found in PATH. Please ensure rapidnj is installed.")
 
-        # Compute Q matrix
-        min_Q = float('inf')
-        pair = (nodes[0], nodes[1])
-        for i_idx in range(len(nodes)):
-            for j_idx in range(i_idx + 1, len(nodes)):
-                u, v = nodes[i_idx], nodes[j_idx]
-                q = D[u, v] - r[u] - r[v]
-                if q < min_Q:
-                    min_Q = q
-                    pair = (u, v)
+    elif tool == "fastme":
+        try:
+            res = subprocess.run(
+                ["fastme", "-i", matrix_file, "-o", outtree_file],
+                capture_output=True, text=True
+            )
+            if res.returncode != 0 or not os.path.exists(outtree_file) or os.path.getsize(outtree_file) == 0:
+                raise RuntimeError(f"FastME execution failed (exit code {res.returncode}):\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
+            return
+        except FileNotFoundError:
+            raise RuntimeError("FastME executable 'fastme' was not found in PATH. Please ensure fastme is installed.")
 
-        u, v = pair
-        # Branch lengths
-        d_u = 0.5 * D[u, v] + 0.5 * (r[u] - r[v])
-        d_v = 0.5 * D[u, v] + 0.5 * (r[v] - r[u])
-        d_u = max(0.0001, d_u)
-        d_v = max(0.0001, d_v)
-
-        # Create new node
-        w = next_node
-        next_node += 1
-        tree_str[w] = f"({tree_str[u]}:{d_u:.6f},{tree_str[v]}:{d_v:.6f})"
-
-        # Update distances
-        for x in nodes:
-            if x != u and x != v:
-                D[w, x] = D[x, w] = 0.5 * (D[u, x] + D[v, x] - D[u, v])
-
-        nodes.remove(u)
-        nodes.remove(v)
-        nodes.append(w)
-
-    u, v = nodes[0], nodes[1]
-    d_uv = max(0.0001, D[u, v])
-    final_tree = f"({tree_str[u]}:{d_uv:.6f},{tree_str[v]}:{d_uv:.6f});"
-    return final_tree
+    else:
+        raise ValueError(f"Unsupported NJ tool: {tool}")
 
 def main():
     parser = argparse.ArgumentParser(description="PWA+NJ Pipeline Execution")
     parser.add_argument("--fasta", required=True, help="Input FASTA sequence file")
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
     parser.add_argument("--outmatrix", help="Output PHYLIP distance matrix file")
-    parser.add_argument("--alpha", type=float, default=None, help="Gamma shape parameter alpha for distance correction")
-    parser.add_argument("--tool", choices=["rapidnj", "fastme", "python"], default="rapidnj", help="NJ software to use")
+    parser.add_argument("--gap_open", type=float, default=10.0, help="Gap open penalty (default: 10.0)")
+    parser.add_argument("--gap_extend", type=float, default=0.5, help="Gap extension penalty (default: 0.5)")
+    parser.add_argument("--dist_model", choices=["poisson", "gamma_poisson"], default="poisson", help="Distance model (default: poisson)")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for Gamma-Poisson distance (default: 1.0)")
+    parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
     args = parser.parse_args()
 
     records = list(SeqIO.parse(args.fasta, "fasta"))
@@ -276,8 +234,8 @@ def main():
     dist_matrix = [[0.0] * N for _ in range(N)]
     for i in range(N):
         for j in range(i + 1, N):
-            al1, al2 = needleman_wunsch(seqs[i], seqs[j])
-            d = calculate_poisson_distance(al1, al2, alpha=args.alpha)
+            al1, al2 = needleman_wunsch(seqs[i], seqs[j], gap_open=args.gap_open, gap_extend=args.gap_extend)
+            d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
             dist_matrix[i][j] = d
             dist_matrix[j][i] = d
 
@@ -296,29 +254,8 @@ def main():
         with open(tmp_matrix_file, "w") as f:
             f.write(matrix_str)
 
-    # Run NJ tool (RapidNJ / FastME / Python fallback)
-    tree_written = False
-    if args.tool == "rapidnj":
-        try:
-            res = subprocess.run(["rapidnj", tmp_matrix_file, "-i", "pd", "-x", args.outtree], capture_output=True, text=True)
-            if res.returncode == 0 and os.path.exists(args.outtree) and os.path.getsize(args.outtree) > 0:
-                tree_written = True
-        except FileNotFoundError:
-            pass
-
-    elif args.tool == "fastme":
-        try:
-            res = subprocess.run(["fastme", "-i", tmp_matrix_file, "-o", args.outtree], capture_output=True, text=True)
-            if res.returncode == 0 and os.path.exists(args.outtree) and os.path.getsize(args.outtree) > 0:
-                tree_written = True
-        except FileNotFoundError:
-            pass
-
-    if not tree_written:
-        # Fallback to pure python NJ
-        tree_nwk = python_nj(dist_matrix, names)
-        with open(args.outtree, "w") as f:
-            f.write(tree_nwk)
+    # Run NJ tool (RapidNJ / FastME)
+    run_nj_tool(tmp_matrix_file, args.outtree, tool=args.tool)
 
     if not args.outmatrix and os.path.exists(tmp_matrix_file):
         try:
@@ -326,7 +263,7 @@ def main():
         except OSError:
             pass
 
-    print(f"PWA+NJ tree successfully written to {args.outtree}")
+    print(f"PWA+NJ tree successfully written to {args.outtree} (dist_model={args.dist_model}, gap_open={args.gap_open}, gap_extend={args.gap_extend}, tool={args.tool})")
 
 if __name__ == "__main__":
     main()

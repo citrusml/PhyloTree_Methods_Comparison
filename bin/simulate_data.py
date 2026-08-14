@@ -14,21 +14,7 @@ import subprocess
 import dendropy
 from Bio import SeqIO
 
-# NOTE: The following constants and fallback simulator are commented out as per specifications.
-# AliSim (IQ-TREE 2) is strictly required for sequence evolution simulations.
 
-# AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"
-# 
-# # Standard LG background equilibrium amino acid frequencies
-# LG_FREQS = {
-#     'A': 0.079066, 'R': 0.055941, 'N': 0.041977, 'D': 0.053052, 'C': 0.013097,
-#     'Q': 0.040767, 'E': 0.071586, 'G': 0.057342, 'H': 0.022355, 'I': 0.056206,
-#     'L': 0.099047, 'K': 0.064600, 'M': 0.022986, 'F': 0.042302, 'P': 0.044040,
-#     'S': 0.061197, 'T': 0.053287, 'W': 0.012066, 'Y': 0.029199, 'V': 0.069797
-# }
-# 
-# AA_LIST = list(LG_FREQS.keys())
-# AA_PROBS = list(LG_FREQS.values())
 
 def generate_random_tree(num_taxa, total_depth_substitutions, sigma=0.5):
     """
@@ -53,61 +39,6 @@ def generate_random_tree(num_taxa, total_depth_substitutions, sigma=0.5):
             edge.length = max(0.001, edge.length * multiplier)
 
     return tree
-
-# # this uses when Alism cannot use
-# def simulate_sequence_evolution(tree, length, indel_rate=0.05, max_indel_len=3):
-#     """
-#     Simulates sequence evolution along the tree starting from a random ancestral protein sequence.
-#     Applies substitutions (Poisson/LG) and Indels (insertions and deletions).
-#     Returns dictionary of unaligned leaf sequences.
-#     """
-#     ancestor_seq = "".join(random.choices(AA_LIST, weights=AA_PROBS, k=length))
-# 
-#     node_seqs = {}
-#     root_node = tree.seed_node
-#     node_seqs[root_node] = list(ancestor_seq)
-# 
-#     for node in tree.preorder_node_iter():
-#         if node == root_node:
-#             continue
-#         parent_seq = node_seqs[node.parent_node]
-#         edge_len = node.edge_length or 0.1
-# 
-#         # Mutate sequence along edge
-#         curr_seq = list(parent_seq)
-#         new_seq = []
-#         i = 0
-#         while i < len(curr_seq):
-#             # Check for deletion
-#             if random.random() < (1.0 - math.exp(-edge_len * indel_rate)):
-#                 indel_len = random.randint(1, max_indel_len)
-#                 i += indel_len
-#                 continue
-# 
-#             # Check for substitution
-#             if random.random() < (1.0 - math.exp(-edge_len)):
-#                 new_seq.append(random.choices(AA_LIST, weights=AA_PROBS)[0])
-#             else:
-#                 new_seq.append(curr_seq[i])
-# 
-#             # Check for insertion
-#             if random.random() < (1.0 - math.exp(-edge_len * indel_rate)):
-#                 ins_len = random.randint(1, max_indel_len)
-#                 ins_seq = random.choices(AA_LIST, weights=AA_PROBS, k=ins_len)
-#                 new_seq.extend(ins_seq)
-# 
-#             i += 1
-# 
-#         node_seqs[node] = new_seq
-# 
-#     # Extract leaf sequences
-#     leaf_seqs = {}
-#     for leaf in tree.leaf_nodes():
-#         name = leaf.taxon.label
-#         seq_str = "".join(node_seqs[leaf])
-#         leaf_seqs[name] = seq_str
-# 
-#     return leaf_seqs
 
 def format_model_string(model, alpha=None):
     """
