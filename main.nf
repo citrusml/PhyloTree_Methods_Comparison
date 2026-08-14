@@ -2,7 +2,21 @@ nextflow.enable.dsl=2
 
 /*
  * PWA+NJ vs MSA+ML Regime Map Benchmark Main Workflow
+ * Default parameter fallback definitions
  */
+params.distances  = [0.1, 0.5, 1.0, 2.0, 3.0]
+params.lengths    = [50, 100, 300, 500, 1000]
+params.replicates = 100
+params.num_taxa   = 16
+params.sigma      = 0.5
+params.model      = "LG+G"
+params.alpha      = 1.0
+params.indel_rate = 0.05
+params.gap_open   = 10.0
+params.gap_extend = 0.5
+params.dist_model = "poisson"
+params.outdir     = "results"
+params.nj_tool    = "rapidnj"
 
 process SIMULATE_DATA {
     tag "D=${dist}_L=${len}_rep=${rep}"

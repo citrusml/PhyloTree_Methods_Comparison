@@ -16,4 +16,4 @@ cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 rm -f .nextflow/cache/*/db/LOCK
 
 # リアルタイムに進捗ログを出力して実行
-nextflow run main.nf -profile supercomputer -resume
+nextflow run main.nf -c nextflow.config -profile supercomputer -resume
