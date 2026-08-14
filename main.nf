@@ -6,12 +6,15 @@ nextflow.enable.dsl=2
 
 process SIMULATE_DATA {
     tag "D=${dist}_L=${len}_rep=${rep}"
+    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep)
 
     output:
-    tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("seqs.fasta")
+    tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("seqs.fasta"), emit: sim_data
+    path("true_tree.nwk")
+    path("seqs.fasta")
 
     script:
     """
@@ -31,18 +34,22 @@ process SIMULATE_DATA {
 
 process RUN_PWA_NJ {
     tag "D=${dist}_L=${len}_rep=${rep}"
+    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("pwa_nj_D${dist}_L${len}_rep${rep}.csv")
+    path("pwa_nj_D${dist}_L${len}_rep${rep}.csv"), emit: csv
+    path("pwa_nj.nwk")
+    path("pwa_matrix.phylip")
 
     script:
     """
     python3 ${projectDir}/bin/run_pwa_nj.py \\
         --fasta ${fasta} \\
         --outtree pwa_nj.nwk \\
+        --outmatrix pwa_matrix.phylip \\
         --gap_open ${params.gap_open} \\
         --gap_extend ${params.gap_extend} \\
         --dist_model ${params.dist_model} \\
@@ -62,18 +69,24 @@ process RUN_PWA_NJ {
 
 process RUN_MSA_NJ {
     tag "D=${dist}_L=${len}_rep=${rep}"
+    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("msa_nj_D${dist}_L${len}_rep${rep}.csv")
+    path("msa_nj_D${dist}_L${len}_rep${rep}.csv"), emit: csv
+    path("msa_nj.nwk")
+    path("msa.fasta")
+    path("msa_matrix.phylip")
 
     script:
     """
     python3 ${projectDir}/bin/run_msa_nj.py \\
         --fasta ${fasta} \\
         --outtree msa_nj.nwk \\
+        --outmsa msa.fasta \\
+        --outmatrix msa_matrix.phylip \\
         --dist_model ${params.dist_model} \\
         --alpha ${params.alpha} \\
         --tool ${params.nj_tool}
@@ -91,12 +104,15 @@ process RUN_MSA_NJ {
 
 process RUN_MSA_ML {
     tag "D=${dist}_L=${len}_rep=${rep}"
+    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
 
     output:
-    path("msa_ml_D${dist}_L${len}_rep${rep}.csv")
+    path("msa_ml_D${dist}_L${len}_rep${rep}.csv"), emit: csv
+    path("msa_ml.nwk")
+    path("msa_ml_meta.json")
 
     script:
     """
@@ -145,13 +161,13 @@ workflow {
 
     SIMULATE_DATA(ch_params)
 
-    ch_sim_data = SIMULATE_DATA.out
+    ch_sim_data = SIMULATE_DATA.out.sim_data
 
     RUN_PWA_NJ(ch_sim_data)
     RUN_MSA_NJ(ch_sim_data)
     RUN_MSA_ML(ch_sim_data)
 
-    ch_all_csvs = RUN_PWA_NJ.out.mix(RUN_MSA_NJ.out).mix(RUN_MSA_ML.out).collect()
+    ch_all_csvs = RUN_PWA_NJ.out.csv.mix(RUN_MSA_NJ.out.csv).mix(RUN_MSA_ML.out.csv).collect()
 
     COLLECT_AND_PLOT(ch_all_csvs)
 }

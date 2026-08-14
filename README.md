@@ -129,7 +129,7 @@ micromamba activate phylomethod_env
 mkdir -p logs
 
 # Run in background with input detached
-nohup nextflow run main.nf -profile supercomputer -resume -ansi-log false > logs/run_nextflow.log 2>&1 < /dev/null &
+nohup nextflow run main.nf -profile supercomputer -resume > logs/run_nextflow.log 2>&1 < /dev/null &
 
 # Monitor logs
 tail -f logs/run_nextflow.log
