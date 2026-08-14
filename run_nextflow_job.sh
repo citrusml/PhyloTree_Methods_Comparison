@@ -6,9 +6,13 @@
 #BSUB -W 24:00
 #BSUB -o /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.log
 #BSUB -e /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.err
-source ~/.bashrc
+export PATH="$HOME/bin:$PATH"
+eval "$(micromamba shell hook --shell bash)"
 micromamba activate phylomethod_env
+
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
+
 # ロックファイルクリーンアップ
 rm -f .nextflow/cache/*/db/LOCK
+
 nextflow run main.nf -profile supercomputer -resume -ansi-log false
