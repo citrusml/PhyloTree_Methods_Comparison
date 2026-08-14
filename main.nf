@@ -6,7 +6,7 @@ nextflow.enable.dsl=2
 
 process SIMULATE_DATA {
     tag "D=${dist}_L=${len}_rep=${rep}"
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
+    publishDir path: { "${params.outdir}/replications/D${dist}_L${len}_rep${rep}" }, mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep)
@@ -32,7 +32,7 @@ process SIMULATE_DATA {
 
 process RUN_PWA_NJ {
     tag "D=${dist}_L=${len}_rep=${rep}"
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
+    publishDir path: { "${params.outdir}/replications/D${dist}_L${len}_rep${rep}" }, mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
@@ -67,7 +67,7 @@ process RUN_PWA_NJ {
 
 process RUN_MSA_NJ {
     tag "D=${dist}_L=${len}_rep=${rep}"
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
+    publishDir path: { "${params.outdir}/replications/D${dist}_L${len}_rep${rep}" }, mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
@@ -102,7 +102,7 @@ process RUN_MSA_NJ {
 
 process RUN_MSA_ML {
     tag "D=${dist}_L=${len}_rep=${rep}"
-    publishDir "${params.outdir}/replications/D${dist}_L${len}_rep${rep}", mode: 'copy'
+    publishDir path: { "${params.outdir}/replications/D${dist}_L${len}_rep${rep}" }, mode: 'copy'
 
     input:
     tuple val(dist), val(len), val(rep), path(true_tree), path(fasta)
