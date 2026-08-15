@@ -29,7 +29,7 @@ process SIMULATE_DATA {
 
     script:
     """
-    python3 ${projectDir}/bin/simulate_data.py \\
+    python3 ${projectDir}/../bin/simulate_data.py \\
         --distance ${dist} \\
         --length ${len} \\
         --num_taxa ${params.num_taxa} \\
@@ -56,7 +56,7 @@ process RUN_PWA_NJ {
 
     script:
     """
-    python3 ${projectDir}/bin/run_pwa_nj.py \\
+    python3 ${projectDir}/../bin/run_pwa_nj.py \\
         --fasta ${fasta} \\
         --outtree pwa_nj.nwk \\
         --outmatrix pwa_matrix.phylip \\
@@ -66,7 +66,7 @@ process RUN_PWA_NJ {
         --alpha ${params.alpha} \\
         --tool ${params.nj_tool}
 
-    python3 ${projectDir}/bin/evaluate_trees.py \\
+    python3 ${projectDir}/../bin/evaluate_trees.py \\
         --truetree ${true_tree} \\
         --esttree pwa_nj.nwk \\
         --pipeline PWA+NJ \\
@@ -91,7 +91,7 @@ process RUN_MSA_NJ {
 
     script:
     """
-    python3 ${projectDir}/bin/run_msa_nj.py \\
+    python3 ${projectDir}/../bin/run_msa_nj.py \\
         --fasta ${fasta} \\
         --outtree msa_nj.nwk \\
         --outmsa msa.fasta \\
@@ -100,7 +100,7 @@ process RUN_MSA_NJ {
         --alpha ${params.alpha} \\
         --tool ${params.nj_tool}
 
-    python3 ${projectDir}/bin/evaluate_trees.py \\
+    python3 ${projectDir}/../bin/evaluate_trees.py \\
         --truetree ${true_tree} \\
         --esttree msa_nj.nwk \\
         --pipeline MSA+NJ \\
@@ -124,13 +124,13 @@ process RUN_MSA_ML {
 
     script:
     """
-    python3 ${projectDir}/bin/run_msa_ml.py \\
+    python3 ${projectDir}/../bin/run_msa_ml.py \\
         --fasta ${fasta} \\
         --outtree msa_ml.nwk \\
         --outjson msa_ml_meta.json \\
         --threads ${task.cpus}
 
-    python3 ${projectDir}/bin/evaluate_trees.py \\
+    python3 ${projectDir}/../bin/evaluate_trees.py \\
         --truetree ${true_tree} \\
         --esttree msa_ml.nwk \\
         --pipeline MSA+ML \\
@@ -155,7 +155,7 @@ process COLLECT_AND_PLOT {
     script:
     """
     cat *.csv | awk 'NR==1 || \$0 !~ /^distance/' > benchmark_summary.csv
-    python3 ${projectDir}/bin/plot_regime_map.py --csv benchmark_summary.csv --outdir .
+    python3 ${projectDir}/../bin/plot_regime_map.py --csv benchmark_summary.csv --outdir .
     """
 }
 
