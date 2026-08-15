@@ -106,6 +106,11 @@ def simulate_with_alisim(tree_file, length, out_fasta, seed=None, indel_rate=0.0
 
     # Standardize taxon names (strip leading/trailing underscores added by AliSim)
     records = list(SeqIO.parse(unaligned_fa, "fasta"))
+    
+    # Check if any sequence is empty (all sites deleted)
+    if len(records) == 0 or any(len(str(rec.seq).replace("-", "")) == 0 for rec in records):
+        raise RuntimeError(f"Error: One or more sequences have 0 length (completely deleted) in AliSim output.")
+
     with open(out_fasta, "w") as out_f:
         for rec in records:
             clean_id = rec.id.strip("_")
@@ -134,26 +139,43 @@ def main():
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args()
 
-    if args.seed is not None:
-        random.seed(args.seed)
+    base_seed = args.seed if args.seed is not None else random.randint(1, 1000000)
+    max_trials = 10
+    last_error = None
 
-    # 1. Generate True Tree
-    tree = generate_random_tree(args.num_taxa, args.distance, sigma=args.sigma)
-    tree.write(path=args.outtree, schema="newick")
+    for trial in range(max_trials):
+        current_seed = base_seed + trial * 10007
+        random.seed(current_seed)
 
-    # 2. Simulate Sequences with AliSim (Strict - fails if AliSim is not available)
-    simulate_with_alisim(
-        tree_file=args.outtree,
-        length=args.length,
-        out_fasta=args.outfasta,
-        seed=args.seed,
-        indel_rate=args.indel_rate,
-        model=args.model,
-        alpha=args.alpha
-    )
+        # 1. Generate True Tree
+        tree = generate_random_tree(args.num_taxa, args.distance, sigma=args.sigma)
+        tree.write(path=args.outtree, schema="newick")
 
-    used_model_str = format_model_string(args.model, args.alpha)
-    print(f"Simulated data generated: Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, sigma={args.sigma}, model={used_model_str}, indel_rate={args.indel_rate})")
+        # 2. Simulate Sequences with AliSim
+        try:
+            simulate_with_alisim(
+                tree_file=args.outtree,
+                length=args.length,
+                out_fasta=args.outfasta,
+                seed=current_seed,
+                indel_rate=args.indel_rate,
+                model=args.model,
+                alpha=args.alpha
+            )
+            used_model_str = format_model_string(args.model, args.alpha)
+            print(f"Simulated data generated (trial {trial+1}/{max_trials}): Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, sigma={args.sigma}, model={used_model_str}, indel_rate={args.indel_rate})")
+            return
+        except Exception as e:
+            last_error = e
+            # Clean up partial output if any
+            if os.path.exists(args.outfasta):
+                try:
+                    os.remove(args.outfasta)
+                except OSError:
+                    pass
+
+    # If all trials failed, raise the last exception
+    raise RuntimeError(f"Failed to generate valid sequence simulation after {max_trials} attempts. Last error: {last_error}")
 
 if __name__ == "__main__":
     main()
