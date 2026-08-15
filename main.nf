@@ -175,8 +175,7 @@ workflow {
     RUN_MSA_NJ(ch_sim_data)
     RUN_MSA_ML(ch_sim_data)
 
-    // remainder: true ensures COLLECT_AND_PLOT runs even when some tasks were lost (e.g. node failures)
-    ch_all_csvs = RUN_PWA_NJ.out.csv.mix(RUN_MSA_NJ.out.csv).mix(RUN_MSA_ML.out.csv).collect(remainder: true)
+    ch_all_csvs = RUN_PWA_NJ.out.csv.mix(RUN_MSA_NJ.out.csv).mix(RUN_MSA_ML.out.csv).collect()
 
     COLLECT_AND_PLOT(ch_all_csvs)
 }
