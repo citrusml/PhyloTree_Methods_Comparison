@@ -64,10 +64,10 @@ def format_model_string(model, alpha=None):
         # Non-gamma model (e.g., "LG", "WAG", "JC")
         return model
 
-def simulate_with_alisim(tree_file, length, out_fasta, seed=None, indel_rate=0.05, model="LG+G", alpha=1.0):
+def simulate_with_alisim(tree_file, length, out_fasta, seed=None, indel_rate=0.05, model="LG+G", alpha=1.0, expected_num_taxa=16):
     """
     Simulates sequences using IQ-TREE AliSim with specified substitution model, Gamma alpha, and indel rate.
-    Raises RuntimeError if AliSim is unavailable or fails.
+    Raises RuntimeError if AliSim is unavailable, fails, or produces incomplete/empty sequences.
     """
     iqtree_cmd = None
     for bin_name in ["iqtree2", "iqtree"]:
@@ -107,9 +107,15 @@ def simulate_with_alisim(tree_file, length, out_fasta, seed=None, indel_rate=0.0
     # Standardize taxon names (strip leading/trailing underscores added by AliSim)
     records = list(SeqIO.parse(unaligned_fa, "fasta"))
     
-    # Check if any sequence is empty (all sites deleted)
-    if len(records) == 0 or any(len(str(rec.seq).replace("-", "")) == 0 for rec in records):
-        raise RuntimeError(f"Error: One or more sequences have 0 length (completely deleted) in AliSim output.")
+    # Check that ALL taxa exist and have non-empty sequences (at least 5 amino acids)
+    min_required_len = min(5, max(1, length // 10))
+    if len(records) < expected_num_taxa:
+        raise RuntimeError(f"Error: AliSim generated only {len(records)} taxa, but expected {expected_num_taxa}.")
+    
+    for rec in records:
+        clean_seq = str(rec.seq).replace("-", "")
+        if len(clean_seq) < min_required_len:
+            raise RuntimeError(f"Error: Taxon {rec.id} has too short/empty sequence ({len(clean_seq)} aa < {min_required_len}) in AliSim output.")
 
     with open(out_fasta, "w") as out_f:
         for rec in records:
@@ -160,7 +166,8 @@ def main():
                 seed=current_seed,
                 indel_rate=args.indel_rate,
                 model=args.model,
-                alpha=args.alpha
+                alpha=args.alpha,
+                expected_num_taxa=args.num_taxa
             )
             used_model_str = format_model_string(args.model, args.alpha)
             print(f"Simulated data generated (trial {trial+1}/{max_trials}): Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, sigma={args.sigma}, model={used_model_str}, indel_rate={args.indel_rate})")

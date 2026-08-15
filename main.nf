@@ -5,7 +5,7 @@ nextflow.enable.dsl=2
  * Default parameter fallback definitions
  */
 params.distances  = [0.1, 0.5, 1.0, 2.0, 3.0]
-params.lengths    = [50, 100, 300, 500, 1000]
+params.lengths    = [100, 300, 500, 1000, 1500]
 params.replicates = 100
 params.num_taxa   = 16
 params.sigma      = 0.5
