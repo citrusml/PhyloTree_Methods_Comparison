@@ -116,29 +116,10 @@ def main():
                 wf.write(rf.read())
             ml_success = True
             metadata = parse_iqtree_log(iq_file)
-
-    if not ml_success:
-        # Standalone Python Fallback (Parsimony/Distance-based ML proxy for unit testing prior to IQ-TREE installation)
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from run_msa_nj import calculate_poisson_distance, python_nj
-        msa_records = list(SeqIO.parse(tmp_msa, "fasta"))
-        names = [rec.id for rec in msa_records]
-        aligned_seqs = [str(rec.seq) for rec in msa_records]
-        N = len(names)
-        dist_matrix = [[0.0] * N for _ in range(N)]
-        for i in range(N):
-            for j in range(i + 1, N):
-                d = calculate_poisson_distance(aligned_seqs[i], aligned_seqs[j])
-                dist_matrix[i][j] = dist_matrix[j][i] = d
-        tree_nwk = python_nj(dist_matrix, names)
-        with open(args.outtree, "w") as f:
-            f.write(tree_nwk)
-        metadata = {
-            "best_model_bic": "Fallback_Poisson_NJ",
-            "best_model_aic": "Fallback_Poisson_NJ",
-            "gamma_alpha": 1.0,
-            "invariable_sites": 0.0
-        }
+        else:
+            raise RuntimeError(f"IQ-TREE execution failed (exit code {res.returncode}):\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
+    else:
+        raise RuntimeError("IQ-TREE executable ('iqtree2' or 'iqtree') was not found in PATH. Please ensure IQ-TREE 2 is installed.")
 
     # Save JSON metadata
     with open(json_out, "w") as jf:
