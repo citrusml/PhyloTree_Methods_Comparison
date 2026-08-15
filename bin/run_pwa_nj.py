@@ -11,6 +11,7 @@ import os
 import math
 import argparse
 import subprocess
+import numpy as np
 from Bio import SeqIO
 from Bio.Align import substitution_matrices
 
@@ -34,56 +35,44 @@ def get_sub_score(a, b):
 def needleman_wunsch(seq1, seq2, gap_open=-10.0, gap_extend=-0.5):
     """
     Needleman-Wunsch global alignment with affine gap penalty.
-    Uses three DP tables (M, Ix, Iy) to distinguish gap-open from gap-extend.
+    Uses numpy float64 arrays for the three DP tables (M, Ix, Iy).
+    numpy arrays consume ~3.5x less memory than Python lists of floats
+    (8 bytes/element vs 28 bytes/element), preventing LSF OOM kills for L>=1000.
     A gap of length k costs: gap_open + k * gap_extend
     Note: gap_open and gap_extend are assumed negative.
     """
-    # Ensure penalties are negative
     gap_open = -abs(gap_open)
     gap_extend = -abs(gap_extend)
 
     m, n = len(seq1), len(seq2)
-    NEG_INF = float('-inf')
+    NEG_INF = -1e18  # large negative sentinel compatible with numpy float64
 
-    # M[i][j]: best score ending with seq1[i] and seq2[j] aligned (match/mismatch)
-    # Ix[i][j]: best score ending with seq1[i] aligned to a gap (gap in seq2 = deletion)
-    # Iy[i][j]: best score ending with seq2[j] aligned to a gap (gap in seq1 = insertion)
-    M  = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
-    Ix = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
-    Iy = [[NEG_INF] * (n + 1) for _ in range(m + 1)]
+    # numpy float64 arrays: M[i,j], Ix[i,j], Iy[i,j]
+    M  = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
+    Ix = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
+    Iy = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
 
-    M[0][0] = 0.0
+    M[0, 0] = 0.0
     for i in range(1, m + 1):
-        Ix[i][0] = gap_open + i * gap_extend
+        Ix[i, 0] = gap_open + i * gap_extend
     for j in range(1, n + 1):
-        Iy[0][j] = gap_open + j * gap_extend
+        Iy[0, j] = gap_open + j * gap_extend
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
             s = get_sub_score(seq1[i-1], seq2[j-1])
-            M[i][j] = max(
-                M[i-1][j-1]  + s,
-                Ix[i-1][j-1] + s,
-                Iy[i-1][j-1] + s
-            )
-            Ix[i][j] = max(
-                M[i-1][j]  + gap_open + gap_extend,
-                Ix[i-1][j] + gap_extend
-            )
-            Iy[i][j] = max(
-                M[i][j-1]  + gap_open + gap_extend,
-                Iy[i][j-1] + gap_extend
-            )
+            M[i, j]  = max(M[i-1, j-1] + s, Ix[i-1, j-1] + s, Iy[i-1, j-1] + s)
+            Ix[i, j] = max(M[i-1, j]   + gap_open + gap_extend, Ix[i-1, j] + gap_extend)
+            Iy[i, j] = max(M[i, j-1]   + gap_open + gap_extend, Iy[i, j-1] + gap_extend)
 
     # Traceback: determine terminal state
     align1, align2 = [], []
     i, j = m, n
 
-    # Find best terminal state
     terminal = max(
-        (M[m][n],  'M'),
-        (Ix[m][n], 'Ix'),
-        (Iy[m][n], 'Iy'),
+        (float(M[m, n]),  'M'),
+        (float(Ix[m, n]), 'Ix'),
+        (float(Iy[m, n]), 'Iy'),
         key=lambda x: x[0]
     )
     state = terminal[1]
@@ -91,31 +80,31 @@ def needleman_wunsch(seq1, seq2, gap_open=-10.0, gap_extend=-0.5):
     while i > 0 or j > 0:
         if state == 'M':
             s = get_sub_score(seq1[i-1], seq2[j-1])
-            if i > 0 and j > 0 and M[i][j] == M[i-1][j-1] + s:
+            if i > 0 and j > 0 and M[i, j] == M[i-1, j-1] + s:
                 align1.append(seq1[i-1]); align2.append(seq2[j-1])
                 i -= 1; j -= 1; state = 'M'
-            elif i > 0 and j > 0 and M[i][j] == Ix[i-1][j-1] + s:
+            elif i > 0 and j > 0 and M[i, j] == Ix[i-1, j-1] + s:
                 align1.append(seq1[i-1]); align2.append(seq2[j-1])
                 i -= 1; j -= 1; state = 'Ix'
-            elif i > 0 and j > 0 and M[i][j] == Iy[i-1][j-1] + s:
+            elif i > 0 and j > 0 and M[i, j] == Iy[i-1, j-1] + s:
                 align1.append(seq1[i-1]); align2.append(seq2[j-1])
                 i -= 1; j -= 1; state = 'Iy'
             else:
                 break
         elif state == 'Ix':
-            if i > 0 and Ix[i][j] == M[i-1][j] + gap_open + gap_extend:
+            if i > 0 and Ix[i, j] == M[i-1, j] + gap_open + gap_extend:
                 align1.append(seq1[i-1]); align2.append('-')
                 i -= 1; state = 'M'
-            elif i > 0 and Ix[i][j] == Ix[i-1][j] + gap_extend:
+            elif i > 0 and Ix[i, j] == Ix[i-1, j] + gap_extend:
                 align1.append(seq1[i-1]); align2.append('-')
                 i -= 1; state = 'Ix'
             else:
                 break
         elif state == 'Iy':
-            if j > 0 and Iy[i][j] == M[i][j-1] + gap_open + gap_extend:
+            if j > 0 and Iy[i, j] == M[i, j-1] + gap_open + gap_extend:
                 align1.append('-'); align2.append(seq2[j-1])
                 j -= 1; state = 'M'
-            elif j > 0 and Iy[i][j] == Iy[i][j-1] + gap_extend:
+            elif j > 0 and Iy[i, j] == Iy[i, j-1] + gap_extend:
                 align1.append('-'); align2.append(seq2[j-1])
                 j -= 1; state = 'Iy'
             else:
