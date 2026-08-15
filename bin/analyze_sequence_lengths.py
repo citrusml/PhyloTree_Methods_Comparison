@@ -212,12 +212,32 @@ def generate_summary_table(df, outdir):
     summary_df.to_csv(csv_path, index=False)
     print(f"Saved sequence length statistics table: {csv_path}")
 
-    # Print L=100 highlight table
-    l100_table = summary_df[summary_df["initial_length"] == 100]
-    print("\n" + "=" * 65)
-    print("=== Sequence Length Summary for Initial L = 100 aa ===")
-    print(l100_table[["distance", "mean_length", "std_length", "min_length", "median_length", "max_length", "retention_pct"]].to_string(index=False))
-    print("=" * 65)
+    # Print summary tables for all sequence lengths
+    lengths = sorted(summary_df["initial_length"].unique())
+    print("\n" + "=" * 80)
+    print("=== SEQUENCE LENGTH & RESIDUE RETENTION SUMMARY (ALL CONDITIONS) ===")
+    print("=" * 80)
+
+    for l in lengths:
+        sub_tab = summary_df[summary_df["initial_length"] == l]
+        print(f"\n--- Initial Target Length L = {l} aa ---")
+        print(sub_tab[["distance", "mean_length", "std_length", "min_length", "median_length", "max_length", "retention_pct"]].to_string(index=False))
+
+    # Also print an overall comparative pivot table
+    print("\n" + "=" * 80)
+    print("=== OVERALL MEAN ± STD LENGTH TABLE (Row: Distance D, Col: Initial Length L) ===")
+    print("=" * 80)
+    summary_df["mean_std_str"] = summary_df["mean_length"].map(lambda m: f"{m:.1f}") + " ± " + summary_df["std_length"].map(lambda s: f"{s:.1f}")
+    pivot_mean_std = summary_df.pivot(index="distance", columns="initial_length", values="mean_std_str")
+    print(pivot_mean_std.to_string())
+
+    print("\n" + "=" * 80)
+    print("=== MIN ~ MAX LENGTH RANGE TABLE (Row: Distance D, Col: Initial Length L) ===")
+    print("=" * 80)
+    summary_df["range_str"] = summary_df["min_length"].astype(str) + " ~ " + summary_df["max_length"].astype(str)
+    pivot_range = summary_df.pivot(index="distance", columns="initial_length", values="range_str")
+    print(pivot_range.to_string())
+    print("=" * 80)
 
 def main():
     parser = argparse.ArgumentParser(

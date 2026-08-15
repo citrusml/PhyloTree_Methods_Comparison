@@ -4,16 +4,17 @@
 #BSUB -n 1
 #BSUB -M 8GB
 #BSUB -W 24:00
-#BSUB -o /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.log
-#BSUB -e /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.log
+#BSUB -o /dev/null
+#BSUB -e /dev/null
 export PATH="$HOME/bin:$PATH"
 eval "$(micromamba shell hook --shell bash)"
 micromamba activate phylomethod_env
 
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
+mkdir -p logs
 
 # ロックファイルクリーンアップ
 rm -f .nextflow/cache/*/db/LOCK
 
-# リアルタイムに進捗ログを出力して実行
-nextflow run main.nf -c nextflow.config -profile supercomputer -resume
+# リアルタイムに進捗ログを出力して実行 (いつでも tail -f logs/nextflow_live.log で確認可能)
+nextflow run main.nf -c nextflow.config -profile supercomputer -resume > logs/nextflow.log 2>&1

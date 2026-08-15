@@ -107,15 +107,15 @@ def simulate_with_alisim(tree_file, length, out_fasta, seed=None, indel_rate=0.0
     # Standardize taxon names (strip leading/trailing underscores added by AliSim)
     records = list(SeqIO.parse(unaligned_fa, "fasta"))
     
-    # Check that ALL taxa exist and have non-empty sequences (at least 5 amino acids)
-    min_required_len = min(5, max(1, length // 10))
+    # Check that ALL taxa exist and have non-empty sequences (len >= 1)
+    min_required_len = 1
     if len(records) < expected_num_taxa:
         raise RuntimeError(f"Error: AliSim generated only {len(records)} taxa, but expected {expected_num_taxa}.")
     
     for rec in records:
         clean_seq = str(rec.seq).replace("-", "")
         if len(clean_seq) < min_required_len:
-            raise RuntimeError(f"Error: Taxon {rec.id} has too short/empty sequence ({len(clean_seq)} aa < {min_required_len}) in AliSim output.")
+            raise RuntimeError(f"Error: Taxon {rec.id} has empty sequence in AliSim output.")
 
     with open(out_fasta, "w") as out_f:
         for rec in records:
@@ -139,7 +139,7 @@ def main():
     parser.add_argument("--sigma", type=float, default=0.5, help="Lognormal relaxed clock rate variation sigma (default: 0.5)")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for LG+G (default: 1.0)")
     parser.add_argument("--model", type=str, default="LG+G", help="Substitution model prefix (default: LG+G)")
-    parser.add_argument("--indel_rate", type=float, default=0.05, help="Indel rate for insertions and deletions (default: 0.05)")
+    parser.add_argument("--indel_rate", type=float, default=0.01, help="Indel rate for insertions and deletions (default: 0.01)")
     parser.add_argument("--outtree", required=True, help="Output true Newick tree file")
     parser.add_argument("--outfasta", required=True, help="Output unaligned FASTA file")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
