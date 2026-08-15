@@ -13,8 +13,5 @@ micromamba activate phylomethod_env
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 mkdir -p logs
 
-# ロックファイルクリーンアップ
-rm -f .nextflow/cache/*/db/LOCK
-
 # リアルタイムに進捗ログを出力して実行 (いつでも tail -f logs/nextflow_live.log で確認可能)
 nextflow run main.nf -c nextflow.config -profile supercomputer -resume > logs/nextflow.log 2>&1
