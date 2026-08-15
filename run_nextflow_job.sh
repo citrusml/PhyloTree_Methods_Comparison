@@ -3,9 +3,9 @@
 #BSUB -q mafft
 #BSUB -n 1
 #BSUB -M 8GB
-#BSUB -W 72:00
-#BSUB -o /dev/null
-#BSUB -e /dev/null
+#BSUB -W 24:00
+#BSUB -o /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.log
+#BSUB -e /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/logs/nextflow_lsf_%J.log
 export PATH="$HOME/bin:$PATH"
 eval "$(micromamba shell hook --shell bash)"
 micromamba activate phylomethod_env
