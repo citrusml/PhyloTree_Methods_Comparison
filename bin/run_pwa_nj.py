@@ -202,6 +202,13 @@ def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
     else:
         raise ValueError(f"Unsupported NJ tool: {tool}")
 
+def _compute_single_pair(args_tuple):
+    """Worker function for parallel pairwise distance computation."""
+    i, j, s1, s2, gap_open, gap_extend, dist_model, alpha = args_tuple
+    al1, al2 = needleman_wunsch(s1, s2, gap_open=gap_open, gap_extend=gap_extend)
+    d = calculate_distance(al1, al2, dist_model=dist_model, alpha=alpha)
+    return (i, j, d)
+
 def main():
     parser = argparse.ArgumentParser(description="PWA+NJ Pipeline Execution")
     parser.add_argument("--fasta", required=True, help="Input FASTA sequence file")
@@ -212,6 +219,7 @@ def main():
     parser.add_argument("--dist_model", choices=["poisson", "gamma_poisson"], default="poisson", help="Distance model (default: poisson)")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for Gamma-Poisson distance (default: 1.0)")
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
+    parser.add_argument("--threads", type=int, default=1, help="Number of parallel CPU workers for pairwise alignments (default: 1)")
     args = parser.parse_args()
 
     records = list(SeqIO.parse(args.fasta, "fasta"))
@@ -219,12 +227,24 @@ def main():
     seqs = [str(rec.seq) for rec in records]
     N = len(names)
 
-    # Pairwise alignment and distance matrix construction
-    dist_matrix = [[0.0] * N for _ in range(N)]
+    # Build pair task list
+    pair_tasks = []
     for i in range(N):
         for j in range(i + 1, N):
-            al1, al2 = needleman_wunsch(seqs[i], seqs[j], gap_open=args.gap_open, gap_extend=args.gap_extend)
-            d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
+            pair_tasks.append((i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha))
+
+    dist_matrix = [[0.0] * N for _ in range(N)]
+
+    if args.threads > 1 and len(pair_tasks) > 50:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=args.threads) as executor:
+            results = executor.map(_compute_single_pair, pair_tasks, chunksize=max(1, len(pair_tasks) // (args.threads * 4)))
+            for i, j, d in results:
+                dist_matrix[i][j] = d
+                dist_matrix[j][i] = d
+    else:
+        for task in pair_tasks:
+            i, j, d = _compute_single_pair(task)
             dist_matrix[i][j] = d
             dist_matrix[j][i] = d
 

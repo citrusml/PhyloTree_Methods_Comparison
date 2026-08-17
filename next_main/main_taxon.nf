@@ -64,7 +64,8 @@ process RUN_PWA_NJ {
         --gap_extend ${params.gap_extend} \\
         --dist_model ${params.dist_model} \\
         --alpha ${params.alpha} \\
-        --tool ${params.nj_tool}
+        --tool ${params.nj_tool} \\
+        --threads ${task.cpus}
 
     python3 ${projectDir}/../bin/evaluate_trees.py \\
         --truetree ${true_tree} \\
