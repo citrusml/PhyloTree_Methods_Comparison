@@ -28,19 +28,25 @@ def run_mafft(in_fasta, out_msa):
 
 def main():
     parser = argparse.ArgumentParser(description="MSA+NJ Control Pipeline Execution")
-    parser.add_argument("--fasta", required=True, help="Input FASTA sequence file")
+    parser.add_argument("--fasta", help="Input unaligned FASTA sequence file")
+    parser.add_argument("--msa", help="Input pre-aligned MSA FASTA file (skips MAFFT if provided)")
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
-    parser.add_argument("--outmsa", help="Output MAFFT MSA file")
+    parser.add_argument("--outmsa", help="Output MAFFT MSA file (if MAFFT is run)")
     parser.add_argument("--outmatrix", help="Output PHYLIP distance matrix file")
     parser.add_argument("--dist_model", choices=["poisson", "gamma_poisson"], default="poisson", help="Distance model (default: poisson)")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha (default: 1.0)")
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
     args = parser.parse_args()
 
-    tmp_msa_file = args.outmsa or (args.outtree + ".msa.fasta")
-    
-    # 1. Run MAFFT MSA
-    run_mafft(args.fasta, tmp_msa_file)
+    if not args.msa and not args.fasta:
+        parser.error("Either --msa (pre-aligned) or --fasta (unaligned) must be provided.")
+
+    if args.msa:
+        tmp_msa_file = args.msa
+    else:
+        tmp_msa_file = args.outmsa or (args.outtree + ".msa.fasta")
+        # 1. Run MAFFT MSA
+        run_mafft(args.fasta, tmp_msa_file)
 
     # 2. Parse MSA
     msa_records = list(SeqIO.parse(tmp_msa_file, "fasta"))

@@ -55,16 +55,16 @@ def main():
     combined_df.to_csv(out_csv, index=False)
     print(f"Successfully saved {len(combined_df)} records to {out_csv}")
 
-    # Generate Regime Map plot
+    # Generate all reports and figures
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    plot_script = os.path.join(project_dir, "bin", "plot_regime_map.py")
-    if os.path.exists(plot_script):
-        cmd = [sys.executable, plot_script, "--csv", out_csv, "--outdir", args.outdir]
+    report_script = os.path.join(project_dir, "bin", "generate_all_reports.py")
+    if os.path.exists(report_script):
+        cmd = [sys.executable, report_script, "--csv", out_csv, "--outdir", args.outdir]
         subprocess.run(cmd)
 
-    print(f"\n=== Aggregation Completed! ===")
+    print(f"\n=== Aggregation and Report Generation Completed! ===")
     print(f"Summary CSV: {out_csv}")
-    print(f"Regime Map:  {os.path.join(args.outdir, 'regime_map_delta_nrf.png')}")
+    print(f"Reports:     {args.outdir}")
 
 if __name__ == "__main__":
     main()

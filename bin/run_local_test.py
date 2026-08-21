@@ -110,9 +110,9 @@ def main():
                     "--outcsv", csv_path
                 ])
 
-    # 5. Plot Regime Map
+    # 5. Plot Regime Map and All Reports
     plot_cmd = [
-        sys.executable, os.path.join(bin_dir, "plot_regime_map.py"),
+        sys.executable, os.path.join(bin_dir, "generate_all_reports.py"),
         "--csv", csv_path,
         "--outdir", outdir
     ]

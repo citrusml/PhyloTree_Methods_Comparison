@@ -13,7 +13,7 @@ import argparse
 import subprocess
 import numpy as np
 from Bio import SeqIO
-from Bio.Align import substitution_matrices
+from Bio.Align import PairwiseAligner, substitution_matrices
 
 # Load standard BLOSUM62 substitution matrix
 try:
@@ -21,118 +21,57 @@ try:
 except Exception as e:
     raise RuntimeError(f"Failed to load BLOSUM62 matrix from Biopython: {e}")
 
-def get_sub_score(a, b):
-    """Retrieves substitution score for amino acid pair (a, b) from BLOSUM62."""
-    a, b = a.upper(), b.upper()
-    try:
-        return _BLOSUM62[a, b]
-    except KeyError:
-        try:
-            return _BLOSUM62[b, a]
-        except KeyError:
-            return 4.0 if a == b else -4.0
-
-def needleman_wunsch(seq1, seq2, gap_open=-10.0, gap_extend=-0.5):
+def create_aligner(gap_open=10.0, gap_extend=0.5):
     """
-    Needleman-Wunsch global alignment with affine gap penalty.
-    Uses numpy float64 arrays for the three DP tables (M, Ix, Iy).
-    numpy arrays consume ~3.5x less memory than Python lists of floats
-    (8 bytes/element vs 28 bytes/element), preventing LSF OOM kills for L>=1000.
-    A gap of length k costs: gap_open + k * gap_extend
-    Note: gap_open and gap_extend are assumed negative.
+    Creates and configures a C-accelerated Bio.Align.PairwiseAligner.
+    Uses affine gap scoring matching standard Needleman-Wunsch:
+    Gap penalty = gap_open + k * gap_extend
     """
-    gap_open = -abs(gap_open)
-    gap_extend = -abs(gap_extend)
+    aligner = PairwiseAligner()
+    aligner.mode = 'global'
+    aligner.substitution_matrix = _BLOSUM62
+    aligner.open_gap_score = -abs(gap_open)
+    aligner.extend_gap_score = -abs(gap_extend)
+    return aligner
 
-    m, n = len(seq1), len(seq2)
-    NEG_INF = -1e18  # large negative sentinel compatible with numpy float64
+_THREAD_LOCAL_ALIGNER = None
 
-    # numpy float64 arrays: M[i,j], Ix[i,j], Iy[i,j]
-    M  = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
-    Ix = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
-    Iy = np.full((m + 1, n + 1), NEG_INF, dtype=np.float64)
+def get_aligner(gap_open=10.0, gap_extend=0.5):
+    """Retrieves or creates a cached PairwiseAligner instance."""
+    global _THREAD_LOCAL_ALIGNER
+    if _THREAD_LOCAL_ALIGNER is None:
+        _THREAD_LOCAL_ALIGNER = create_aligner(gap_open, gap_extend)
+    return _THREAD_LOCAL_ALIGNER
 
-    M[0, 0] = 0.0
-    for i in range(1, m + 1):
-        Ix[i, 0] = gap_open + i * gap_extend
-    for j in range(1, n + 1):
-        Iy[0, j] = gap_open + j * gap_extend
+def needleman_wunsch(seq1, seq2, aligner=None, gap_open=10.0, gap_extend=0.5):
+    """
+    Needleman-Wunsch global alignment using Biopython's C-accelerated PairwiseAligner.
+    Returns (aligned_seq1, aligned_seq2).
+    """
+    if aligner is None:
+        aligner = get_aligner(gap_open=gap_open, gap_extend=gap_extend)
 
-    for i in range(1, m + 1):
-        for j in range(1, n + 1):
-            s = get_sub_score(seq1[i-1], seq2[j-1])
-            M[i, j]  = max(M[i-1, j-1] + s, Ix[i-1, j-1] + s, Iy[i-1, j-1] + s)
-            Ix[i, j] = max(M[i-1, j]   + gap_open + gap_extend, Ix[i-1, j] + gap_extend)
-            Iy[i, j] = max(M[i, j-1]   + gap_open + gap_extend, Iy[i, j-1] + gap_extend)
-
-    # Traceback: determine terminal state
-    align1, align2 = [], []
-    i, j = m, n
-
-    terminal = max(
-        (float(M[m, n]),  'M'),
-        (float(Ix[m, n]), 'Ix'),
-        (float(Iy[m, n]), 'Iy'),
-        key=lambda x: x[0]
-    )
-    state = terminal[1]
-
-    while i > 0 or j > 0:
-        if state == 'M':
-            s = get_sub_score(seq1[i-1], seq2[j-1])
-            if i > 0 and j > 0 and M[i, j] == M[i-1, j-1] + s:
-                align1.append(seq1[i-1]); align2.append(seq2[j-1])
-                i -= 1; j -= 1; state = 'M'
-            elif i > 0 and j > 0 and M[i, j] == Ix[i-1, j-1] + s:
-                align1.append(seq1[i-1]); align2.append(seq2[j-1])
-                i -= 1; j -= 1; state = 'Ix'
-            elif i > 0 and j > 0 and M[i, j] == Iy[i-1, j-1] + s:
-                align1.append(seq1[i-1]); align2.append(seq2[j-1])
-                i -= 1; j -= 1; state = 'Iy'
-            else:
-                break
-        elif state == 'Ix':
-            if i > 0 and Ix[i, j] == M[i-1, j] + gap_open + gap_extend:
-                align1.append(seq1[i-1]); align2.append('-')
-                i -= 1; state = 'M'
-            elif i > 0 and Ix[i, j] == Ix[i-1, j] + gap_extend:
-                align1.append(seq1[i-1]); align2.append('-')
-                i -= 1; state = 'Ix'
-            else:
-                break
-        elif state == 'Iy':
-            if j > 0 and Iy[i, j] == M[i, j-1] + gap_open + gap_extend:
-                align1.append('-'); align2.append(seq2[j-1])
-                j -= 1; state = 'M'
-            elif j > 0 and Iy[i, j] == Iy[i, j-1] + gap_extend:
-                align1.append('-'); align2.append(seq2[j-1])
-                j -= 1; state = 'Iy'
-            else:
-                break
-
-    # Handle remaining unaligned residues (leading gaps)
-    while i > 0:
-        align1.append(seq1[i-1]); align2.append('-')
-        i -= 1
-    while j > 0:
-        align1.append('-'); align2.append(seq2[j-1])
-        j -= 1
-
-    return "".join(reversed(align1)), "".join(reversed(align2))
+    alignments = aligner.align(seq1, seq2)
+    best_alignment = alignments[0]
+    return str(best_alignment[0]), str(best_alignment[1])
 
 def compute_pairwise_p_distance(aligned1, aligned2):
-    """Calculates proportion of amino acid mismatches p excluding gap sites."""
-    valid_sites = 0
-    mismatches = 0
-    for a, b in zip(aligned1, aligned2):
-        if a == '-' or b == '-':
-            continue
-        valid_sites += 1
-        if a.upper() != b.upper():
-            mismatches += 1
+    """Calculates proportion of amino acid mismatches p excluding gap sites using NumPy vectorized operations."""
+    if isinstance(aligned1, str):
+        arr1 = np.frombuffer(aligned1.upper().encode('ascii'), dtype=np.uint8)
+        arr2 = np.frombuffer(aligned2.upper().encode('ascii'), dtype=np.uint8)
+    else:
+        arr1 = np.asarray(aligned1, dtype=np.uint8)
+        arr2 = np.asarray(aligned2, dtype=np.uint8)
+
+    gap_byte = 45  # ASCII code for '-'
+    valid_mask = (arr1 != gap_byte) & (arr2 != gap_byte)
+    valid_sites = int(np.count_nonzero(valid_mask))
 
     if valid_sites == 0:
         return 0.94  # Max proportion fallback for 0 overlap
+
+    mismatches = int(np.count_nonzero(arr1[valid_mask] != arr2[valid_mask]))
     p = mismatches / valid_sites
     return min(p, 0.94)
 
@@ -227,15 +166,15 @@ def main():
     seqs = [str(rec.seq) for rec in records]
     N = len(names)
 
-    # Build pair task list
-    pair_tasks = []
-    for i in range(N):
-        for j in range(i + 1, N):
-            pair_tasks.append((i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha))
-
     dist_matrix = [[0.0] * N for _ in range(N)]
 
-    if args.threads > 1 and len(pair_tasks) > 50:
+    if args.threads > 1 and N >= 16:
+        # Multi-process parallel computation for large taxa counts
+        pair_tasks = [
+            (i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha)
+            for i in range(N)
+            for j in range(i + 1, N)
+        ]
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=args.threads) as executor:
             results = executor.map(_compute_single_pair, pair_tasks, chunksize=max(1, len(pair_tasks) // (args.threads * 4)))
@@ -243,10 +182,16 @@ def main():
                 dist_matrix[i][j] = d
                 dist_matrix[j][i] = d
     else:
-        for task in pair_tasks:
-            i, j, d = _compute_single_pair(task)
-            dist_matrix[i][j] = d
-            dist_matrix[j][i] = d
+        # Direct C-accelerated single-process computation (avoids IPC/serialization overhead)
+        aligner = get_aligner(gap_open=args.gap_open, gap_extend=args.gap_extend)
+        for i in range(N):
+            s1 = seqs[i]
+            for j in range(i + 1, N):
+                s2 = seqs[j]
+                al1, al2 = needleman_wunsch(s1, s2, aligner=aligner, gap_open=args.gap_open, gap_extend=args.gap_extend)
+                d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
+                dist_matrix[i][j] = d
+                dist_matrix[j][i] = d
 
     # Write PHYLIP distance matrix
     matrix_str = f"   {N}\n"

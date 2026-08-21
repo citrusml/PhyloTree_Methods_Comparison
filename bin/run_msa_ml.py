@@ -81,25 +81,32 @@ def create_star_tree(fasta_path, out_tree_path):
 
 def main():
     parser = argparse.ArgumentParser(description="MSA+ML Pipeline Execution (IQ-TREE 2)")
-    parser.add_argument("--fasta", required=True, help="Input FASTA sequence file")
+    parser.add_argument("--fasta", help="Input unaligned FASTA sequence file")
+    parser.add_argument("--msa", help="Input pre-aligned MSA FASTA file (skips MAFFT if provided)")
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
-    parser.add_argument("--outmsa", help="Output MAFFT MSA file")
+    parser.add_argument("--outmsa", help="Output MAFFT MSA file (if MAFFT is run)")
     parser.add_argument("--outjson", help="Output JSON metadata file")
     parser.add_argument("--bootstrap", type=int, default=0, help="Ultrafast bootstrap replicates (-B, default: 0 = disabled)")
     parser.add_argument("--threads", type=int, default=1, help="Number of CPU threads for IQ-TREE 2 (-T)")
     args = parser.parse_args()
 
-    tmp_msa = args.outmsa or (args.outtree + ".msa.fasta")
+    if not args.msa and not args.fasta:
+        parser.error("Either --msa (pre-aligned) or --fasta (unaligned) must be provided.")
+
+    if args.msa:
+        tmp_msa = args.msa
+    else:
+        tmp_msa = args.outmsa or (args.outtree + ".msa.fasta")
+        # 1. Run MAFFT MSA
+        mafft_success = run_mafft(args.fasta, tmp_msa)
+        if not mafft_success:
+            records = list(SeqIO.parse(args.fasta, "fasta"))
+            with open(tmp_msa, "w") as f:
+                for rec in records:
+                    f.write(f">{rec.id}\n{str(rec.seq)}\n")
+
     json_out = args.outjson or (args.outtree + ".json")
     prefix = args.outtree + ".iqtree_run"
-
-    # 1. Run MAFFT MSA
-    mafft_success = run_mafft(args.fasta, tmp_msa)
-    if not mafft_success:
-        records = list(SeqIO.parse(args.fasta, "fasta"))
-        with open(tmp_msa, "w") as f:
-            for rec in records:
-                f.write(f">{rec.id}\n{str(rec.seq)}\n")
 
     # 2. Locate IQ-TREE 2 binary
     iqtree_cmd = None
@@ -154,7 +161,7 @@ def main():
     else:
         # Fallback for 100% identical sequence datasets where IQ-TREE cannot produce a tree
         print("Warning: IQ-TREE could not construct a tree. Using star tree fallback.", file=sys.stderr)
-        if create_star_tree(args.fasta, args.outtree):
+        if create_star_tree(tmp_msa, args.outtree):
             metadata = {
                 "best_model_bic": "Identical_Sequences",
                 "best_model_aic": "Identical_Sequences",
