@@ -45,7 +45,8 @@ PIPELINE_COLORS = {
     "MSA+NJ": "#ff7f0e",       # Orange
     "MSA+ML": "#2ca02c",       # Green
     "TRUE_MSA+NJ": "#9467bd",  # Purple
-    "TRUE_MSA+ML": "#8c564b"   # Brown
+    "TRUE_MSA+ML": "#8c564b",  # Brown
+    "TRUE_DIST+NJ": "#d62728"  # Red
 }
 
 # ==========================================
@@ -89,7 +90,7 @@ def generate_regime_map(df, outdir):
     print(f"Generated: {plot_path}")
 
 def generate_method_comparisons(df, outdir):
-    """Generates pairwise comparison heatmaps between all methods."""
+    """Generates comprehensive pairwise comparison heatmaps and absolute performance heatmaps across all methods."""
     comp_dir = os.path.join(outdir, "method_comparisons")
     os.makedirs(comp_dir, exist_ok=True)
 
@@ -102,6 +103,9 @@ def generate_method_comparisons(df, outdir):
             return None
         return sub.set_index(["length", "distance"])["nrf_distance"].unstack(level="distance")
 
+    # -------------------------------------------------------------
+    # 1. Standard Inferred Pipelines Comparison
+    # -------------------------------------------------------------
     # ML vs NJ
     if "MSA+ML" in pipes and "MSA+NJ" in pipes:
         grid_ml = get_grid("MSA+ML")
@@ -125,6 +129,105 @@ def generate_method_comparisons(df, outdir):
         delta = grid_pwa - grid_ml
         _plot_heatmap(delta, "Overall Pipeline: PWA+NJ vs MSA+ML\n(ΔnRF = PWA+NJ - MSA+ML)",
                       r"$\Delta nRF$ (>0: ML wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_ml.png"))
+
+    # -------------------------------------------------------------
+    # 2. True MSA Benchmark Comparisons (Experiment 1 / Alignment Error Analysis)
+    # -------------------------------------------------------------
+    # Alignment Error Penalty on NJ (MSA+NJ vs TRUE_MSA+NJ)
+    if "MSA+NJ" in pipes and "TRUE_MSA+NJ" in pipes:
+        grid_msa_nj = get_grid("MSA+NJ")
+        grid_true_nj = get_grid("TRUE_MSA+NJ")
+        delta = grid_msa_nj - grid_true_nj  # >0: Alignment error degraded NJ accuracy
+        _plot_heatmap(delta, "Alignment Error Penalty (NJ): MSA+NJ vs TRUE_MSA+NJ\n(ΔnRF = MSA+NJ - TRUE_MSA+NJ)",
+                      r"$\Delta nRF$ (>0: Alignment Error Degraded Tree)", os.path.join(comp_dir, "comparison_alignment_loss_nj.png"))
+
+    # Alignment Error Penalty on ML (MSA+ML vs TRUE_MSA+ML)
+    if "MSA+ML" in pipes and "TRUE_MSA+ML" in pipes:
+        grid_msa_ml = get_grid("MSA+ML")
+        grid_true_ml = get_grid("TRUE_MSA+ML")
+        delta = grid_msa_ml - grid_true_ml  # >0: Alignment error degraded ML accuracy
+        _plot_heatmap(delta, "Alignment Error Penalty (ML): MSA+ML vs TRUE_MSA+ML\n(ΔnRF = MSA+ML - TRUE_MSA+ML)",
+                      r"$\Delta nRF$ (>0: Alignment Error Degraded Tree)", os.path.join(comp_dir, "comparison_alignment_loss_ml.png"))
+
+    # PWA+NJ vs TRUE_MSA+NJ (How close PWA gets to ideal True MSA NJ)
+    if "PWA+NJ" in pipes and "TRUE_MSA+NJ" in pipes:
+        grid_pwa = get_grid("PWA+NJ")
+        grid_true_nj = get_grid("TRUE_MSA+NJ")
+        delta = grid_pwa - grid_true_nj
+        _plot_heatmap(delta, "PWA vs Ideal Alignment: PWA+NJ vs TRUE_MSA+NJ\n(ΔnRF = PWA+NJ - TRUE_MSA+NJ)",
+                      r"$\Delta nRF$ (>0: True MSA wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_true_msa_nj.png"))
+
+    # PWA+NJ vs TRUE_MSA+ML
+    if "PWA+NJ" in pipes and "TRUE_MSA+ML" in pipes:
+        grid_pwa = get_grid("PWA+NJ")
+        grid_true_ml = get_grid("TRUE_MSA+ML")
+        delta = grid_pwa - grid_true_ml
+        _plot_heatmap(delta, "PWA vs Ideal ML: PWA+NJ vs TRUE_MSA+ML\n(ΔnRF = PWA+NJ - TRUE_MSA+ML)",
+                      r"$\Delta nRF$ (>0: True MSA+ML wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_true_msa_ml.png"))
+
+    # TRUE_MSA+NJ vs TRUE_MSA+ML (Intrinsic algorithm difference without alignment error)
+    if "TRUE_MSA+NJ" in pipes and "TRUE_MSA+ML" in pipes:
+        grid_true_nj = get_grid("TRUE_MSA+NJ")
+        grid_true_ml = get_grid("TRUE_MSA+ML")
+        delta = grid_true_nj - grid_true_ml
+        _plot_heatmap(delta, "Intrinsic Algorithm Performance: TRUE_MSA+NJ vs TRUE_MSA+ML\n(ΔnRF = TRUE_MSA+NJ - TRUE_MSA+ML)",
+                      r"$\Delta nRF$ (>0: ML wins, <0: NJ wins)", os.path.join(comp_dir, "comparison_true_ml_vs_true_nj.png"))
+
+    # -------------------------------------------------------------
+    # 3. True Patristic Distance Matrix Benchmark Comparisons
+    # -------------------------------------------------------------
+    if "TRUE_DIST+NJ" in pipes:
+        grid_true_dist = get_grid("TRUE_DIST+NJ")
+
+        # PWA+NJ vs TRUE_DIST+NJ
+        if "PWA+NJ" in pipes:
+            delta = get_grid("PWA+NJ") - grid_true_dist
+            _plot_heatmap(delta, "PWA vs True Distance: PWA+NJ vs TRUE_DIST+NJ\n(ΔnRF = PWA+NJ - TRUE_DIST+NJ)",
+                          r"$\Delta nRF$ (>0: True Dist wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_true_dist.png"))
+
+        # MSA+NJ vs TRUE_DIST+NJ
+        if "MSA+NJ" in pipes:
+            delta = get_grid("MSA+NJ") - grid_true_dist
+            _plot_heatmap(delta, "MSA vs True Distance: MSA+NJ vs TRUE_DIST+NJ\n(ΔnRF = MSA+NJ - TRUE_DIST+NJ)",
+                          r"$\Delta nRF$ (>0: True Dist wins, <0: MSA wins)", os.path.join(comp_dir, "comparison_msa_nj_vs_true_dist.png"))
+
+        # TRUE_MSA+NJ vs TRUE_DIST+NJ (Sequence sampling & distance estimation error)
+        if "TRUE_MSA+NJ" in pipes:
+            delta = get_grid("TRUE_MSA+NJ") - grid_true_dist
+            _plot_heatmap(delta, "Distance Estimation Loss: TRUE_MSA+NJ vs TRUE_DIST+NJ\n(ΔnRF = TRUE_MSA+NJ - TRUE_DIST+NJ)",
+                          r"$\Delta nRF$ (>0: Sampling/Distance Error)", os.path.join(comp_dir, "comparison_dist_estimation_loss_nj.png"))
+
+    # -------------------------------------------------------------
+    # 4. Absolute Performance Heatmap per Pipeline
+    # -------------------------------------------------------------
+    for pname in pipes:
+        grid_abs = get_grid(pname)
+        if grid_abs is not None:
+            clean_name = pname.replace("+", "_").replace(" ", "_")
+            _plot_absolute_heatmap(grid_abs, f"Absolute Accuracy: {pname} (Mean nRF)",
+                                  os.path.join(comp_dir, f"absolute_nrf_{clean_name}.png"))
+
+def _plot_absolute_heatmap(grid, title, out_path):
+    """Plots absolute nRF heatmap (0.0 to 1.0) using YlOrRd color palette."""
+    plt.figure(figsize=(9, 7))
+    sns.set_theme(style="whitegrid", font_scale=1.1)
+
+    sns.heatmap(
+        grid,
+        annot=True,
+        fmt=".3f",
+        cmap="YlOrRd",
+        vmin=0.0,
+        vmax=1.0,
+        cbar_kws={'label': 'Normalized RF Distance (0 = Perfect, 1 = Completely Disjoint)'}
+    )
+    plt.title(title, fontsize=13, fontweight="bold", pad=15)
+    plt.xlabel("Evolutionary Distance D (substitutions/site)", fontsize=12)
+    plt.ylabel("Sequence Length L (amino acids)", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+    print(f"Generated: {out_path}")
 
 def _plot_heatmap(delta_grid, title, cbar_label, out_path):
     plt.figure(figsize=(9, 7))
@@ -151,7 +254,7 @@ def generate_boxplots(df, outdir):
     """Generates 5x5 grid of nRF distribution boxplots with mean annotations."""
     distances = sorted(df["distance"].unique())
     lengths = sorted(df["length"].unique())
-    pipes = [p for p in ["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_MSA+NJ", "TRUE_MSA+ML"] if p in df["pipeline"].unique()]
+    pipes = [p for p in ["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ"] if p in df["pipeline"].unique()]
 
     fig, axes = plt.subplots(
         nrows=len(distances),
@@ -381,6 +484,9 @@ def organize_replications_from_work(work_dir, rep_outdir, mode="copy", threads=1
                 tmsa_f = os.path.join(tdir, "true_msa.fasta")
                 if os.path.exists(tmsa_f):
                     tasks_by_rep[key]["true_msa.fasta"] = tmsa_f
+                tmat_f = os.path.join(tdir, "true_matrix.phylip")
+                if os.path.exists(tmat_f):
+                    tasks_by_rep[key]["true_matrix.phylip"] = tmat_f
         except Exception:
             continue
 
@@ -394,7 +500,9 @@ def organize_replications_from_work(work_dir, rep_outdir, mode="copy", threads=1
         ("msa_ml.nwk", "msa_ml.nwk"),
         ("msa_ml_meta.json", "msa_ml_meta.json"),
         ("true_msa_nj.nwk", "true_msa_nj.nwk"),
-        ("true_msa_ml.nwk", "true_msa_ml.nwk")
+        ("true_msa_ml.nwk", "true_msa_ml.nwk"),
+        ("true_dist_nj.nwk", "true_dist_nj.nwk"),
+        ("true_matrix.phylip", "true_matrix.phylip")
     ]
 
     for fname, target_name in tree_patterns:

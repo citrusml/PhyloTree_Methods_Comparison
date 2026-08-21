@@ -14,6 +14,32 @@ import argparse
 import subprocess
 import shutil
 from Bio import SeqIO
+import dendropy
+
+def export_true_patristic_matrix(tree_file, out_matrix_file, ordered_labels=None):
+    """
+    Computes exact true patristic distance matrix from the true Newick tree using DendroPy
+    and writes it as a PHYLIP distance matrix.
+    """
+    tns = dendropy.TaxonNamespace()
+    tree = dendropy.Tree.get(path=tree_file, schema="newick", taxon_namespace=tns, preserve_underscores=True)
+    pdm = tree.phylogenetic_distance_matrix()
+
+    taxa_map = {t.label: t for t in tns}
+    if ordered_labels:
+        taxa_list = [taxa_map[lbl] for lbl in ordered_labels if lbl in taxa_map]
+    else:
+        taxa_list = sorted(list(tns), key=lambda x: x.label)
+
+    N = len(taxa_list)
+    with open(out_matrix_file, "w") as f:
+        f.write(f"   {N}\n")
+        for t1 in taxa_list:
+            row_str = f"{t1.label:<10}"
+            for t2 in taxa_list:
+                d = pdm(t1, t2)
+                row_str += f"  {d:.6f}"
+            f.write(row_str + "\n")
 
 def format_model_string(model, alpha=None):
     """
@@ -54,6 +80,7 @@ def simulate_tree_and_sequences_with_alisim(
     out_tree,
     out_fasta,
     out_true_msa=None,
+    out_true_matrix=None,
     num_taxa=32,
     distance=1.0,
     length=300,
@@ -154,6 +181,11 @@ def simulate_tree_and_sequences_with_alisim(
                     clean_id = rec.id.strip("_")
                     out_m.write(f">{clean_id}\n{str(rec.seq)}\n")
 
+    # Write True Patristic Distance Matrix if requested
+    if out_true_matrix:
+        taxa_labels = [rec.id.strip("_") for rec in unaligned_records]
+        export_true_patristic_matrix(out_tree, out_true_matrix, ordered_labels=taxa_labels)
+
     # Clean up temporary AliSim generated files
     for ext in [".phy", ".unaligned.fa", ".fa", ".treefile", ".tree", ".log", ".iqtree"]:
         fpath = prefix + ext
@@ -178,6 +210,7 @@ def main():
     parser.add_argument("--outtree", required=True, help="Output true Newick tree file")
     parser.add_argument("--outfasta", required=True, help="Output unaligned FASTA file")
     parser.add_argument("--outtrue_msa", help="Output True MSA (aligned) FASTA file")
+    parser.add_argument("--outtrue_matrix", help="Output True Patristic Distance Matrix (PHYLIP format)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -197,6 +230,7 @@ def main():
                 out_tree=args.outtree,
                 out_fasta=args.outfasta,
                 out_true_msa=args.outtrue_msa,
+                out_true_matrix=args.outtrue_matrix,
                 num_taxa=args.num_taxa,
                 distance=args.distance,
                 length=args.length,
@@ -214,7 +248,7 @@ def main():
         except Exception as e:
             last_error = e
             # Clean up partial output if any
-            for p in [args.outfasta, args.outtree, args.outtrue_msa]:
+            for p in [args.outfasta, args.outtree, args.outtrue_msa, args.outtrue_matrix]:
                 if p and os.path.exists(p):
                     try:
                         os.remove(p)

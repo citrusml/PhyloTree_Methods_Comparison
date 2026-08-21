@@ -150,7 +150,8 @@ def _compute_single_pair(args_tuple):
 
 def main():
     parser = argparse.ArgumentParser(description="PWA+NJ Pipeline Execution")
-    parser.add_argument("--fasta", required=True, help="Input FASTA sequence file")
+    parser.add_argument("--fasta", help="Input FASTA sequence file")
+    parser.add_argument("--matrix", help="Input precomputed PHYLIP distance matrix (skips alignment if provided)")
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
     parser.add_argument("--outmatrix", help="Output PHYLIP distance matrix file")
     parser.add_argument("--gap_open", type=float, default=10.0, help="Gap open penalty (default: 10.0)")
@@ -160,6 +161,15 @@ def main():
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
     parser.add_argument("--threads", type=int, default=1, help="Number of parallel CPU workers for pairwise alignments (default: 1)")
     args = parser.parse_args()
+
+    if args.matrix:
+        # Precomputed matrix supplied directly
+        run_nj_tool(args.matrix, args.outtree, tool=args.tool)
+        print(f"Tree successfully inferred from {args.matrix} using {args.tool} -> {args.outtree}")
+        return
+
+    if not args.fasta:
+        parser.error("Either --fasta or --matrix must be provided.")
 
     records = list(SeqIO.parse(args.fasta, "fasta"))
     names = [rec.id for rec in records]

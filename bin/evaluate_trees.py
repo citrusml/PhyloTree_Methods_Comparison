@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate Tree Topology Accuracy")
     parser.add_argument("--truetree", required=True, help="Path to True Newick Tree file")
     parser.add_argument("--esttree", required=True, help="Path to Estimated Newick Tree file")
-    parser.add_argument("--pipeline", required=True, choices=["PWA+NJ", "MSA+NJ", "MSA+ML"], help="Pipeline name")
+    parser.add_argument("--pipeline", required=True, choices=["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ"], help="Pipeline name")
     parser.add_argument("--distance", type=float, required=True, help="Evolutionary distance D")
     parser.add_argument("--length", type=int, required=True, help="Sequence length L")
     parser.add_argument("--replicate", type=int, required=True, help="Replicate ID")

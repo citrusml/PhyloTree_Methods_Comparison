@@ -17,7 +17,8 @@ params.alpha         = 1.0
 params.gap_open      = 10.0
 params.gap_extend    = 0.5
 params.dist_model    = "poisson"
-params.run_true_msa  = false
+params.run_true_msa  = true
+params.run_true_dist = true
 params.outdir        = "results"
 params.nj_tool       = "rapidnj"
 
@@ -30,6 +31,7 @@ process SIMULATE_DATA {
     output:
     tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("seqs.fasta"), emit: sim_data
     tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("true_msa.fasta"), emit: true_msa_data
+    tuple val(dist), val(len), val(rep), path("true_tree.nwk"), path("true_matrix.phylip"), emit: true_dist_data
 
     script:
     """
@@ -46,6 +48,7 @@ process SIMULATE_DATA {
         --outtree true_tree.nwk \\
         --outfasta seqs.fasta \\
         --outtrue_msa true_msa.fasta \\
+        --outtrue_matrix true_matrix.phylip \\
         --seed ${rep}
     """
 }
@@ -228,6 +231,34 @@ process RUN_TRUE_MSA_ML {
     """
 }
 
+process RUN_TRUE_DIST_NJ {
+    tag "D=${dist}_L=${len}_rep=${rep}"
+
+    input:
+    tuple val(dist), val(len), val(rep), path(true_tree), path(true_matrix)
+
+    output:
+    path("true_dist_nj_D${dist}_L${len}_rep${rep}.csv"), emit: csv
+    path("true_dist_nj.nwk")
+
+    script:
+    """
+    python3 ${projectDir}/../bin/run_pwa_nj.py \\
+        --matrix ${true_matrix} \\
+        --outtree true_dist_nj.nwk \\
+        --tool ${params.nj_tool}
+
+    python3 ${projectDir}/../bin/evaluate_trees.py \\
+        --truetree ${true_tree} \\
+        --esttree true_dist_nj.nwk \\
+        --pipeline TRUE_DIST+NJ \\
+        --distance ${dist} \\
+        --length ${len} \\
+        --replicate ${rep} \\
+        --outcsv true_dist_nj_D${dist}_L${len}_rep${rep}.csv
+    """
+}
+
 process COLLECT_AND_PLOT {
     publishDir "${params.outdir}", mode: 'copy'
 
@@ -279,6 +310,13 @@ workflow {
         RUN_TRUE_MSA_NJ(ch_true_msa_data)
         RUN_TRUE_MSA_ML(ch_true_msa_data)
         ch_csvs = ch_csvs.mix(RUN_TRUE_MSA_NJ.out.csv).mix(RUN_TRUE_MSA_ML.out.csv)
+    }
+
+    // 5. Optional: True Patristic Distance + NJ evaluation
+    if (params.run_true_dist) {
+        ch_true_dist_data = SIMULATE_DATA.out.true_dist_data
+        RUN_TRUE_DIST_NJ(ch_true_dist_data)
+        ch_csvs = ch_csvs.mix(RUN_TRUE_DIST_NJ.out.csv)
     }
 
     COLLECT_AND_PLOT(ch_csvs.collect())
