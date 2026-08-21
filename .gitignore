@@ -5,5 +5,5 @@
 /bin/__pycache__
 /memo
 /logs/*
-test*
+test/
 analysis

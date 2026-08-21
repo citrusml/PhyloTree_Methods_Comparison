@@ -37,7 +37,7 @@ PhyloTree_Methods_Comparison/
 │   ├── simulate_data.py         # Tree generation (relaxed clock) & AliSim (LG+G) sequence simulation
 │   ├── run_pwa_nj.py            # Needleman-Wunsch (LG matrix) + Poisson distance + RapidNJ
 │   ├── run_msa_nj.py            # MAFFT MSA + Poisson distance + RapidNJ (Control group)
-│   ├── run_msa_ml.py            # MAFFT MSA + IQ-TREE 2 ModelFinder (-m MFP -B 1000)
+│   ├── run_msa_ml.py            # MAFFT MSA + IQ-TREE 2 ModelFinder (-m MFP)
 │   ├── evaluate_trees.py        # DendroPy unrooted RF / nRF metric computation
 │   ├── plot_regime_map.py       # 2D Regime Map Heatmap generation (Seaborn)
 │   ├── run_local_test.py        # Local Phase 0 mini benchmark runner

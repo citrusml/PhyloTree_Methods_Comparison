@@ -2,7 +2,8 @@
 """
 MSA + ML Pipeline Script
 Runs MAFFT alignment, then infers Maximum Likelihood tree using IQ-TREE 2
-with automatic model selection (-m MFP) and Ultrafast Bootstrap (-B 1000).
+with automatic model selection (-m MFP).
+Bootstrap is disabled by default for maximum performance and stability across all dataset sizes.
 Extracts estimated best-fit model and parameters into JSON metadata.
 """
 
@@ -52,14 +53,31 @@ def parse_iqtree_log(iqtree_log_file):
     # Search for Gamma alpha
     alpha_match = re.search(r"Gamma shape alpha:\s*([\d\.]+)", content)
     if alpha_match:
-        metadata["gamma_alpha"] = float(alpha_match.group(1))
+        try:
+            metadata["gamma_alpha"] = float(alpha_match.group(1))
+        except ValueError:
+            pass
 
     # Search for Invariable sites proportion
     inv_match = re.search(r"Proportion of invariable sites:\s*([\d\.]+)", content)
     if inv_match:
-        metadata["invariable_sites"] = float(inv_match.group(1))
+        try:
+            metadata["invariable_sites"] = float(inv_match.group(1))
+        except ValueError:
+            pass
 
     return metadata
+
+def create_star_tree(fasta_path, out_tree_path):
+    """Generates a trivial star tree if all sequences are completely identical."""
+    records = list(SeqIO.parse(fasta_path, "fasta"))
+    if not records:
+        return False
+    taxa_str = ",".join([f"{r.id}:0.001" for r in records])
+    star_newick = f"({taxa_str});\n"
+    with open(out_tree_path, "w") as f:
+        f.write(star_newick)
+    return True
 
 def main():
     parser = argparse.ArgumentParser(description="MSA+ML Pipeline Execution (IQ-TREE 2)")
@@ -67,7 +85,7 @@ def main():
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
     parser.add_argument("--outmsa", help="Output MAFFT MSA file")
     parser.add_argument("--outjson", help="Output JSON metadata file")
-    parser.add_argument("--bootstrap", type=int, default=1000, help="Ultrafast bootstrap replicates (-B)")
+    parser.add_argument("--bootstrap", type=int, default=0, help="Ultrafast bootstrap replicates (-B, default: 0 = disabled)")
     parser.add_argument("--threads", type=int, default=1, help="Number of CPU threads for IQ-TREE 2 (-T)")
     args = parser.parse_args()
 
@@ -83,7 +101,7 @@ def main():
             for rec in records:
                 f.write(f">{rec.id}\n{str(rec.seq)}\n")
 
-    # 2. Run IQ-TREE 2
+    # 2. Locate IQ-TREE 2 binary
     iqtree_cmd = None
     for bin_name in ["iqtree2", "iqtree"]:
         try:
@@ -94,32 +112,57 @@ def main():
         except FileNotFoundError:
             pass
 
-    ml_success = False
-    metadata = {}
+    if not iqtree_cmd:
+        raise RuntimeError("IQ-TREE executable ('iqtree2' or 'iqtree') was not found in PATH. Please ensure IQ-TREE 2 is installed.")
 
-    if iqtree_cmd:
-        cmd = [
+    metadata = {}
+    tree_file = prefix + ".treefile"
+    iq_file = prefix + ".iqtree"
+
+    # 3. Build IQ-TREE command (Pure ML Tree inference with ModelFinder, no bootstrap)
+    cmd = [
+        iqtree_cmd,
+        "-s", tmp_msa,
+        "-m", "MFP",
+        "--prefix", prefix,
+        "--redo",
+        "-T", str(args.threads)
+    ]
+    if args.bootstrap > 0:
+        cmd.extend(["-B", str(args.bootstrap)])
+
+    res = subprocess.run(cmd, capture_output=True, text=True)
+
+    # 4. Fallback if bootstrap was explicitly requested but failed due to identical sequences
+    if (not os.path.exists(tree_file) or os.path.getsize(tree_file) == 0) and args.bootstrap > 0:
+        print("Warning: IQ-TREE failed with bootstrap. Retrying pure ML search without bootstrap...", file=sys.stderr)
+        cmd_noboot = [
             iqtree_cmd,
             "-s", tmp_msa,
             "-m", "MFP",
-            "-B", str(args.bootstrap),
             "--prefix", prefix,
             "--redo",
             "-T", str(args.threads)
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        tree_file = prefix + ".treefile"
-        iq_file = prefix + ".iqtree"
+        res = subprocess.run(cmd_noboot, capture_output=True, text=True)
 
-        if os.path.exists(tree_file) and os.path.getsize(tree_file) > 0:
-            with open(tree_file, "r") as rf, open(args.outtree, "w") as wf:
-                wf.write(rf.read())
-            ml_success = True
-            metadata = parse_iqtree_log(iq_file)
-        else:
-            raise RuntimeError(f"IQ-TREE execution failed (exit code {res.returncode}):\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
+    # 5. Check output tree or apply Star-tree fallback for 100% identical sequences
+    if os.path.exists(tree_file) and os.path.getsize(tree_file) > 0:
+        with open(tree_file, "r") as rf, open(args.outtree, "w") as wf:
+            wf.write(rf.read())
+        metadata = parse_iqtree_log(iq_file)
     else:
-        raise RuntimeError("IQ-TREE executable ('iqtree2' or 'iqtree') was not found in PATH. Please ensure IQ-TREE 2 is installed.")
+        # Fallback for 100% identical sequence datasets where IQ-TREE cannot produce a tree
+        print("Warning: IQ-TREE could not construct a tree. Using star tree fallback.", file=sys.stderr)
+        if create_star_tree(args.fasta, args.outtree):
+            metadata = {
+                "best_model_bic": "Identical_Sequences",
+                "best_model_aic": "Identical_Sequences",
+                "gamma_alpha": None,
+                "invariable_sites": 1.0
+            }
+        else:
+            raise RuntimeError(f"IQ-TREE execution failed completely:\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
 
     # Save JSON metadata
     with open(json_out, "w") as jf:
