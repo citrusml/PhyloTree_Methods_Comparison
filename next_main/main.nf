@@ -270,7 +270,8 @@ process COLLECT_AND_PLOT {
     path("regime_map_delta_nrf.png")
     path("nrf_boxplots.png")
     path("summary_statistics.csv")
-    path("method_comparisons/*") optional true
+    path("method_comparisons"), optional: true
+    path("length_analysis"), optional: true
 
     script:
     """
