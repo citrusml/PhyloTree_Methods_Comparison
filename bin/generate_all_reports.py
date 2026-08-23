@@ -456,97 +456,16 @@ def analyze_sequence_lengths(scan_dir, outdir):
 
 def organize_replications_from_work(work_dir, rep_outdir, mode="copy", threads=16):
     """
-    Harvests all tree files, FASTA, MSAs, and matrices from work/ into results/replications/D{d}_L{l}_rep{r}/
+    Harvests all tree files, FASTA, MSAs, and matrices from work/ into results/replications/
     """
-    print(f"Organizing replication artifacts from '{work_dir}' into '{rep_outdir}'...")
-    os.makedirs(rep_outdir, exist_ok=True)
-
-    tasks_by_rep = defaultdict(dict)
-
-    # 1. Harvest SIMULATE_DATA outputs
-    for f in glob.glob(os.path.join(work_dir, "**", "true_tree.nwk"), recursive=True):
-        tdir = os.path.dirname(f)
-        cmd_sh = os.path.join(tdir, ".command.sh")
-        if not os.path.exists(cmd_sh):
-            continue
-        try:
-            with open(cmd_sh, "r") as cf:
-                txt = cf.read()
-            dm = re.search(r"--distance\s+([\d\.]+)", txt)
-            lm = re.search(r"--length\s+(\d+)", txt)
-            rm = re.search(r"--seed\s+(\d+)", txt)
-            if dm and lm and rm:
-                key = f"D{dm.group(1)}_L{lm.group(1)}_rep{rm.group(1)}"
-                tasks_by_rep[key]["true_tree.nwk"] = f
-                seq_f = os.path.join(tdir, "seqs.fasta")
-                if os.path.exists(seq_f):
-                    tasks_by_rep[key]["seqs.fasta"] = seq_f
-                tmsa_f = os.path.join(tdir, "true_msa.fasta")
-                if os.path.exists(tmsa_f):
-                    tasks_by_rep[key]["true_msa.fasta"] = tmsa_f
-                tmat_f = os.path.join(tdir, "true_matrix.phylip")
-                if os.path.exists(tmat_f):
-                    tasks_by_rep[key]["true_matrix.phylip"] = tmat_f
-        except Exception:
-            continue
-
-    # 2. Harvest Trees and Matrices
-    tree_patterns = [
-        ("pwa_nj.nwk", "pwa_nj.nwk"),
-        ("pwa_matrix.phylip", "pwa_matrix.phylip"),
-        ("msa.fasta", "msa.fasta"),
-        ("msa_nj.nwk", "msa_nj.nwk"),
-        ("msa_matrix.phylip", "msa_matrix.phylip"),
-        ("msa_ml.nwk", "msa_ml.nwk"),
-        ("msa_ml_meta.json", "msa_ml_meta.json"),
-        ("true_msa_nj.nwk", "true_msa_nj.nwk"),
-        ("true_msa_ml.nwk", "true_msa_ml.nwk"),
-        ("true_dist_nj.nwk", "true_dist_nj.nwk"),
-        ("true_matrix.phylip", "true_matrix.phylip")
-    ]
-
-    for fname, target_name in tree_patterns:
-        for f in glob.glob(os.path.join(work_dir, "**", fname), recursive=True):
-            tdir = os.path.dirname(f)
-            # Find associated evaluation CSV to get rep key
-            csv_files = glob.glob(os.path.join(tdir, "*.csv"))
-            for cf in csv_files:
-                bname = os.path.basename(cf)
-                m = re.search(r"_D([\d\.]+)_L(\d+)_rep(\d+)\.csv$", bname)
-                if m:
-                    key = f"D{m.group(1)}_L{m.group(2)}_rep{m.group(3)}"
-                    tasks_by_rep[key][target_name] = f
-                    break
-
-    transfer_tasks = []
-    for rep_key, fdict in tasks_by_rep.items():
-        dst_dir = os.path.join(rep_outdir, rep_key)
-        for target_name, src_file in fdict.items():
-            dst_file = os.path.join(dst_dir, target_name)
-            transfer_tasks.append((src_file, dst_file))
-
-    print(f"Transferring {len(transfer_tasks)} artifact files across {len(tasks_by_rep)} replications...")
-
-    def _copy_task(pair):
-        src, dst = pair
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if os.path.exists(dst):
-            try:
-                os.remove(dst)
-            except OSError:
-                pass
-        if mode == "hardlink":
-            try:
-                os.link(src, dst)
-                return
-            except OSError:
-                pass
-        shutil.copy2(src, dst)
-
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        list(executor.map(_copy_task, transfer_tasks))
-
-    print(f"Successfully organized replication artifacts into '{rep_outdir}'")
+    try:
+        from bin.organize_replications import organize_replications
+        organize_replications(work_dir, rep_outdir, mode=mode, threads=threads)
+    except ImportError:
+        # Fallback if imported from different path
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from organize_replications import organize_replications
+        organize_replications(work_dir, rep_outdir, mode=mode, threads=threads)
 
 # ==========================================
 # Main CLI Entry Point
