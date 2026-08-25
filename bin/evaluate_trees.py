@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--distance", type=float, required=True, help="Evolutionary distance D")
     parser.add_argument("--length", type=int, required=True, help="Sequence length L")
     parser.add_argument("--replicate", type=int, required=True, help="Replicate ID")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha (simulation true alpha)")
     parser.add_argument("--json", help="Path to ML metadata JSON file")
     parser.add_argument("--outcsv", required=True, help="Output summary CSV file")
     args = parser.parse_args()
@@ -61,6 +62,7 @@ def main():
             pass
 
     record = {
+        "alpha": args.alpha,
         "distance": args.distance,
         "length": args.length,
         "replicate": args.replicate,
