@@ -108,9 +108,14 @@ def main():
     json_out = args.outjson or (args.outtree + ".json")
     prefix = args.outtree + ".iqtree_run"
 
-    # 2. Locate IQ-TREE 2 binary
+    # 2. Locate IQ-TREE binary
     iqtree_cmd = None
-    for bin_name in ["iqtree2", "iqtree"]:
+    py_dir = os.path.dirname(sys.executable)
+    for bin_name in ["iqtree3", "iqtree2", "iqtree"]:
+        full_path = os.path.join(py_dir, bin_name)
+        if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
+            iqtree_cmd = full_path
+            break
         try:
             res = subprocess.run([bin_name, "--version"], capture_output=True, text=True)
             if res.returncode == 0:
@@ -120,7 +125,7 @@ def main():
             pass
 
     if not iqtree_cmd:
-        raise RuntimeError("IQ-TREE executable ('iqtree2' or 'iqtree') was not found in PATH. Please ensure IQ-TREE 2 is installed.")
+        raise RuntimeError("IQ-TREE executable ('iqtree3', 'iqtree2' or 'iqtree') was not found in PATH. Please ensure IQ-TREE is installed.")
 
     metadata = {}
     tree_file = prefix + ".treefile"
@@ -175,8 +180,8 @@ def main():
     with open(json_out, "w") as jf:
         json.dump(metadata, jf, indent=2)
 
-    # Clean up temporary MSA if not requested
-    if not args.outmsa and os.path.exists(tmp_msa):
+    # Clean up temporary MAFFT MSA if it was internally created and not requested by user
+    if not args.msa and not args.outmsa and os.path.exists(tmp_msa):
         try:
             os.remove(tmp_msa)
         except OSError:

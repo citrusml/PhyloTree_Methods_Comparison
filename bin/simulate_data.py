@@ -16,6 +16,40 @@ import shutil
 from Bio import SeqIO
 import dendropy
 
+def generate_partition_nexus_file(filepath, length, ics_prop, base_model="LG+G4", alpha=1.0, seed=None):
+    """
+    Generates a NEXUS partition file for AliSim partitioning the sequence into
+    regular LG and ICS partitions. Randomly samples round(length * ics_prop) sites as ICS.
+    """
+    rng = random.Random(seed)
+    k_ics = int(round(length * ics_prop))
+    k_ics = max(1, min(length - 1, k_ics)) if 0.0 < ics_prop < 1.0 else (length if ics_prop >= 1.0 else 0)
+
+    all_sites = list(range(1, length + 1))
+    ics_sites = sorted(rng.sample(all_sites, k_ics)) if k_ics > 0 else []
+    lg_sites = sorted([s for s in all_sites if s not in set(ics_sites)])
+
+    lg_model_str = format_model_string(base_model, alpha)
+    # ICS model with corresponding Gamma rate heterogeneity
+    ics_model_str = format_model_string("ICS+G4", alpha) if "+G" in base_model else "ICS"
+
+    lines = ["#nexus", "begin sets;"]
+    charpartitions = []
+
+    if lg_sites:
+        lines.append(f"    charset part_lg = {' '.join(map(str, lg_sites))};")
+        charpartitions.append(f"{lg_model_str}:part_lg")
+    if ics_sites:
+        lines.append(f"    charset part_ics = {' '.join(map(str, ics_sites))};")
+        charpartitions.append(f"{ics_model_str}:part_ics")
+
+    lines.append(f"    charpartition mypart = {', '.join(charpartitions)};")
+    lines.append("end;")
+    lines.append("")
+
+    with open(filepath, "w") as f:
+        f.write("\n".join(lines))
+
 def export_true_patristic_matrix(tree_file, out_matrix_file, ordered_labels=None):
     """
     Computes exact true patristic distance matrix from the true Newick tree using DendroPy
@@ -67,7 +101,18 @@ def format_model_string(model, alpha=None):
 
 def find_iqtree_cmd():
     """Locates iqtree executable (iqtree3, iqtree2, or iqtree)."""
-    for bin_name in ["iqtree3", "iqtree2", "iqtree"]:
+    candidates = ["iqtree3", "iqtree2", "iqtree"]
+    # Check directory containing current python interpreter (e.g., conda / micromamba env)
+    py_dir = os.path.dirname(sys.executable)
+    for bin_name in candidates:
+        full_path = os.path.join(py_dir, bin_name)
+        if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
+            return full_path
+
+    for bin_name in candidates:
+        found = shutil.which(bin_name)
+        if found:
+            return found
         try:
             res = subprocess.run([bin_name, "--version"], capture_output=True, text=True)
             if res.returncode == 0:
@@ -90,31 +135,75 @@ def simulate_tree_and_sequences_with_alisim(
     delete_rate=0.10,
     model="LG+G4",
     alpha=1.0,
+    ics_prop=0.0,
+    ics_model_file=None,
     seed=None
 ):
     """
     Simulates a random Birth-Death phylogenetic tree, sequences, and true MSA using IQ-TREE AliSim.
-    Tree is generated via -t "RANDOM{bd{birth_rate/death_rate}/num_taxa}" with exponential branch lengths
-    and scaled by branch scale (distance).
+    Supports Invariant Category Sites (ICS) when ics_prop > 0.0 via AliSim partition models (-q)
+    and pre-generated custom NEXUS model definition (--mdef).
     """
     iqtree_cmd = find_iqtree_cmd()
     if not iqtree_cmd:
         raise RuntimeError("Error: AliSim (iqtree3 / iqtree2 / iqtree) is not found in PATH. Please ensure IQ-TREE is installed and accessible.")
 
     prefix = out_fasta + ".alisim"
-    model_str = format_model_string(model, alpha)
     tree_random_spec = f"RANDOM{{bd{{{birth_rate}/{death_rate}}}/{num_taxa}}}"
 
-    cmd = [
-        iqtree_cmd,
-        "--alisim", prefix,
-        "-m", model_str,
-        "--length", str(length),
-        "-t", tree_random_spec,
-        "--indel", f"{insert_rate},{delete_rate}",
-        "--branch-scale", str(distance),
-        "--redo"
-    ]
+    partition_file = None
+
+    if ics_prop > 0.0:
+        # Locate pre-generated ICS model NEXUS file
+        resolved_model_file = None
+        candidates = [
+            ics_model_file,
+            "models/ics_model.nex",
+            os.path.join(os.path.dirname(__file__), "../models/ics_model.nex"),
+            os.path.join(os.getcwd(), "models/ics_model.nex")
+        ]
+        for cand in candidates:
+            if cand and os.path.exists(cand) and os.path.getsize(cand) > 0:
+                resolved_model_file = os.path.abspath(cand)
+                break
+
+        if not resolved_model_file:
+            raise RuntimeError("Error: Invariant Category Sites (ICS) NEXUS model file not found. Please generate it using 'python3 bin/generate_ics_model.py' first.")
+
+        partition_file = prefix + ".partition.nex"
+        generate_partition_nexus_file(
+            partition_file,
+            length=length,
+            ics_prop=ics_prop,
+            base_model=model,
+            alpha=alpha,
+            seed=seed
+        )
+
+        cmd = [
+            iqtree_cmd,
+            "--alisim", prefix,
+            "--mdef", resolved_model_file,
+            "-q", partition_file,
+            "--seqtype", "AA",
+            "-t", tree_random_spec,
+            "--indel", f"{insert_rate},{delete_rate}",
+            "--branch-scale", str(distance),
+            "--redo"
+        ]
+    else:
+        model_str = format_model_string(model, alpha)
+        cmd = [
+            iqtree_cmd,
+            "--alisim", prefix,
+            "-m", model_str,
+            "--length", str(length),
+            "-t", tree_random_spec,
+            "--indel", f"{insert_rate},{delete_rate}",
+            "--branch-scale", str(distance),
+            "--redo"
+        ]
+
     if seed is not None:
         cmd.extend(["-seed", str(seed)])
 
@@ -186,8 +275,8 @@ def simulate_tree_and_sequences_with_alisim(
         taxa_labels = [rec.id.strip("_") for rec in unaligned_records]
         export_true_patristic_matrix(out_tree, out_true_matrix, ordered_labels=taxa_labels)
 
-    # Clean up temporary AliSim generated files
-    for ext in [".phy", ".unaligned.fa", ".fa", ".treefile", ".tree", ".log", ".iqtree"]:
+    # Clean up temporary AliSim generated and NEXUS files
+    for ext in [".phy", ".unaligned.fa", ".fa", ".treefile", ".tree", ".log", ".iqtree", ".partition.nex"]:
         fpath = prefix + ext
         if os.path.exists(fpath):
             try:
@@ -207,6 +296,8 @@ def main():
     parser.add_argument("--indel_rate", type=float, default=None, help="Symmetric indel rate for both insertion and deletion (overrides insert/delete if specified)")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for LG+G4 (default: 1.0)")
     parser.add_argument("--model", type=str, default="LG+G4", help="Substitution model prefix (default: LG+G4)")
+    parser.add_argument("--ics_prop", type=float, default=0.0, help="Proportion of Invariant Category Sites (ICS) under Dayhoff 6 classes (default: 0.0)")
+    parser.add_argument("--ics_model_file", help="Path to pre-generated Invariant Category Sites (ICS) NEXUS model file (default: models/ics_model.nex)")
     parser.add_argument("--outtree", required=True, help="Output true Newick tree file")
     parser.add_argument("--outfasta", required=True, help="Output unaligned FASTA file")
     parser.add_argument("--outtrue_msa", help="Output True MSA (aligned) FASTA file")
@@ -240,9 +331,11 @@ def main():
                 delete_rate=delete_rate,
                 model=args.model,
                 alpha=args.alpha,
+                ics_prop=args.ics_prop,
+                ics_model_file=args.ics_model_file,
                 seed=current_seed
             )
-            used_model_str = format_model_string(args.model, args.alpha)
+            used_model_str = f"{args.model}(ics_prop={args.ics_prop})" if args.ics_prop > 0 else format_model_string(args.model, args.alpha)
             print(f"Simulated data generated (trial {trial+1}/{max_trials}): Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, bd={{{args.birth_rate}/{args.death_rate}}}, model={used_model_str}, indel={{{insert_rate},{delete_rate}}})")
             return
         except Exception as e:
@@ -260,3 +353,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

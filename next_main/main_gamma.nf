@@ -1,7 +1,7 @@
 nextflow.enable.dsl=2
 
 /*
- * PWA+NJ vs MSA+ML Rate Heterogeneity (Alpha) Benchmark (Chunked / Batched Execution)
+ * PWA+NJ vs MSA+ML Gamma-corrected Distance Benchmark (Chunked / Batched Execution)
  * Groups 10 replicates into a single task to maximize HPC throughput.
  */
 params.taxa        = 32
@@ -14,11 +14,12 @@ params.death_rate  = 0.05
 params.insert_rate = 0.05
 params.delete_rate = 0.10
 params.model       = "LG+G4"
-params.alpha       = [0.25, 0.5, 1.0, 2.0]
+params.alpha       = [0.25, 0.5, 1.0, 2.0]     // Simulation true alpha
+params.dist_model  = "gamma_poisson"           // Distance formula
+params.dist_alpha  = 1.0                       // Distance alpha (fixed at 1.0)
 params.gap_open    = 10.0
 params.gap_extend  = 0.5
-params.dist_model  = "poisson"
-params.outdir      = "results/results_alpha"
+params.outdir      = "results/results_gamma"
 params.nj_tool     = "rapidnj"
 
 process SIMULATE_DATA {
@@ -57,7 +58,7 @@ process RUN_PWA_NJ {
     tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
 
     output:
-    path("chunk_pwa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_pwa_nj_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("pwa_nj_*.nwk")
     path("pwa_matrix_*.phylip")
 
@@ -71,19 +72,19 @@ process RUN_PWA_NJ {
             --gap_open ${params.gap_open} \\
             --gap_extend ${params.gap_extend} \\
             --dist_model ${params.dist_model} \\
-            --alpha ${alpha} \\
+            --alpha ${params.dist_alpha} \\
             --tool ${params.nj_tool} \\
             --threads ${task.cpus}
 
-        python3 ${projectDir}/../bin/evaluate_trees.py \\
-            --truetree true_tree_\${rep}.nwk \\
-            --esttree pwa_nj_\${rep}.nwk \\
-            --pipeline PWA+NJ \\
-            --distance ${dist} \\
-            --length ${len} \\
-            --alpha ${alpha} \\
-            --replicate \${rep} \\
-            --outcsv chunk_pwa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+        python3 ${projectDir}/../bin/evaluate_trees.py \
+            --truetree true_tree_\${rep}.nwk \
+            --esttree pwa_nj_\${rep}.nwk \
+            --pipeline PWA+NJ \
+            --distance ${dist} \
+            --length ${len} \
+            --alpha ${alpha} \
+            --replicate \${rep} \
+            --outcsv chunk_pwa_nj_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
@@ -115,7 +116,7 @@ process RUN_MSA_NJ {
     tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
 
     output:
-    path("chunk_msa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_msa_nj_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("msa_nj_*.nwk")
     path("msa_matrix_*.phylip")
 
@@ -127,18 +128,18 @@ process RUN_MSA_NJ {
             --outtree msa_nj_\${rep}.nwk \\
             --outmatrix msa_matrix_\${rep}.phylip \\
             --dist_model ${params.dist_model} \\
-            --alpha ${alpha} \\
+            --alpha ${params.dist_alpha} \\
             --tool ${params.nj_tool}
 
-        python3 ${projectDir}/../bin/evaluate_trees.py \\
-            --truetree true_tree_\${rep}.nwk \\
-            --esttree msa_nj_\${rep}.nwk \\
-            --pipeline MSA+NJ \\
-            --distance ${dist} \\
-            --length ${len} \\
-            --alpha ${alpha} \\
-            --replicate \${rep} \\
-            --outcsv chunk_msa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+        python3 ${projectDir}/../bin/evaluate_trees.py \
+            --truetree true_tree_\${rep}.nwk \
+            --esttree msa_nj_\${rep}.nwk \
+            --pipeline MSA+NJ \
+            --distance ${dist} \
+            --length ${len} \
+            --alpha ${alpha} \
+            --replicate \${rep} \
+            --outcsv chunk_msa_nj_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
@@ -150,7 +151,7 @@ process RUN_MSA_ML {
     tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
 
     output:
-    path("chunk_msa_ml_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_msa_ml_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("msa_ml_*.nwk")
     path("msa_ml_meta_*.json")
 
@@ -163,16 +164,16 @@ process RUN_MSA_ML {
             --outjson msa_ml_meta_\${rep}.json \\
             --threads ${task.cpus}
 
-        python3 ${projectDir}/../bin/evaluate_trees.py \\
-            --truetree true_tree_\${rep}.nwk \\
-            --esttree msa_ml_\${rep}.nwk \\
-            --pipeline MSA+ML \\
-            --distance ${dist} \\
-            --length ${len} \\
-            --alpha ${alpha} \\
-            --replicate \${rep} \\
-            --json msa_ml_meta_\${rep}.json \\
-            --outcsv chunk_msa_ml_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+        python3 ${projectDir}/../bin/evaluate_trees.py \
+            --truetree true_tree_\${rep}.nwk \
+            --esttree msa_ml_\${rep}.nwk \
+            --pipeline MSA+ML \
+            --distance ${dist} \
+            --length ${len} \
+            --alpha ${alpha} \
+            --replicate \${rep} \
+            --json msa_ml_meta_\${rep}.json \
+            --outcsv chunk_msa_ml_gamma_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
@@ -184,15 +185,15 @@ process COLLECT_AND_PLOT {
     path csv_files
 
     output:
-    path("benchmark_alpha_summary.csv")
-    path("alpha_scaling_curves.png")
-    path("alpha_scaling_curves.pdf"), optional: true
-    path("benchmark_alpha_statistics.csv")
+    path("benchmark_gamma_summary.csv")
+    path("gamma_distance_alpha_scaling.png")
+    path("gamma_distance_alpha_scaling.pdf"), optional: true
+    path("benchmark_gamma_statistics.csv")
 
     script:
     """
-    cat *.csv | awk 'NR==1 || \$0 !~ /^alpha/' > benchmark_alpha_summary.csv
-    python3 ${projectDir}/../bin/plot_alpha_benchmark.py --csv benchmark_alpha_summary.csv --outdir .
+    cat *.csv | awk 'NR==1 || \$0 !~ /^alpha/' > benchmark_gamma_summary.csv
+    python3 ${projectDir}/../bin/plot_gamma_benchmark.py --csv benchmark_gamma_summary.csv --outdir .
     """
 }
 
@@ -214,14 +215,14 @@ workflow {
 
     ch_sim_data = SIMULATE_DATA.out.sim_data
 
-    // 1. PWA+NJ pipeline
+    // 1. PWA+NJ pipeline (Gamma-Poisson distance)
     RUN_PWA_NJ(ch_sim_data)
 
     // 2. Shared MAFFT calculation
     RUN_MAFFT(ch_sim_data)
     ch_msa_data = RUN_MAFFT.out.msa_data
 
-    // 3. MSA+NJ and MSA+ML pipelines (reuse shared MSA)
+    // 3. MSA+NJ (Gamma-Poisson distance) and MSA+ML pipelines
     RUN_MSA_NJ(ch_msa_data)
     RUN_MSA_ML(ch_msa_data)
 

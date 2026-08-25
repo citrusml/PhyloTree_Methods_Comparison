@@ -25,11 +25,12 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate Tree Topology Accuracy")
     parser.add_argument("--truetree", required=True, help="Path to True Newick Tree file")
     parser.add_argument("--esttree", required=True, help="Path to Estimated Newick Tree file")
-    parser.add_argument("--pipeline", required=True, choices=["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ"], help="Pipeline name")
+    parser.add_argument("--pipeline", required=True, choices=["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_PWA+NJ", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ"], help="Pipeline name")
     parser.add_argument("--distance", type=float, required=True, help="Evolutionary distance D")
     parser.add_argument("--length", type=int, required=True, help="Sequence length L")
     parser.add_argument("--replicate", type=int, required=True, help="Replicate ID")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha (simulation true alpha)")
+    parser.add_argument("--ics_prop", type=float, default=0.0, help="ICS proportion (simulation invariant category site ratio)")
     parser.add_argument("--json", help="Path to ML metadata JSON file")
     parser.add_argument("--outcsv", required=True, help="Output summary CSV file")
     args = parser.parse_args()
@@ -63,6 +64,7 @@ def main():
 
     record = {
         "alpha": args.alpha,
+        "ics_prop": args.ics_prop,
         "distance": args.distance,
         "length": args.length,
         "replicate": args.replicate,
@@ -78,7 +80,7 @@ def main():
     header = not os.path.exists(args.outcsv)
     df.to_csv(args.outcsv, mode="a", index=False, header=header)
 
-    print(f"Evaluated {args.pipeline} (D={args.distance}, L={args.length}, rep={args.replicate}): RF={rf}, nRF={nrf:.4f}")
+    print(f"Evaluated {args.pipeline} (D={args.distance}, L={args.length}, ics_prop={args.ics_prop}, rep={args.replicate}): RF={rf}, nRF={nrf:.4f}")
 
 if __name__ == "__main__":
     main()

@@ -76,7 +76,7 @@ def main():
     run_nj_tool(tmp_matrix_file, args.outtree, tool=args.tool)
 
     # Clean up temporary files
-    if not args.outmsa and os.path.exists(tmp_msa_file):
+    if not args.msa and not args.outmsa and os.path.exists(tmp_msa_file):
         try:
             os.remove(tmp_msa_file)
         except OSError:

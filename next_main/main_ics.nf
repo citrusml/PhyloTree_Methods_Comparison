@@ -1,12 +1,13 @@
 nextflow.enable.dsl=2
 
 /*
- * PWA+NJ vs MSA+ML Rate Heterogeneity (Alpha) Benchmark (Chunked / Batched Execution)
+ * Invariant Category Sites (ICS) Benchmark Pipeline (Chunked / Batched Execution)
  * Groups 10 replicates into a single task to maximize HPC throughput.
  */
 params.taxa        = 32
 params.distances   = [0.1, 0.5, 1.0, 2.0, 3.0]
-params.lengths     = [100, 500, 1000]
+params.lengths     = [100, 300, 500, 1000]
+params.ics_props   = [0.0, 0.05, 0.1, 0.2]       // Proportion of ICS sites under Dayhoff 6 classes
 params.replicates  = 100
 params.chunk_size  = 10
 params.birth_rate  = 0.1
@@ -14,21 +15,21 @@ params.death_rate  = 0.05
 params.insert_rate = 0.05
 params.delete_rate = 0.10
 params.model       = "LG+G4"
-params.alpha       = [0.25, 0.5, 1.0, 2.0]
+params.alpha       = 1.0                         // Fixed alpha for LG+G4
+params.dist_model  = "poisson"                   // Distance formula
 params.gap_open    = 10.0
 params.gap_extend  = 0.5
-params.dist_model  = "poisson"
-params.outdir      = "results/results_alpha"
+params.outdir      = "results/results_ics"
 params.nj_tool     = "rapidnj"
 
 process SIMULATE_DATA {
-    tag "A=${alpha}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
+    tag "ICS=${ics_prop}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
     input:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end)
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end)
 
     output:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path("true_tree_*.nwk"), path("seqs_*.fasta"), emit: sim_data
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path("true_tree_*.nwk"), path("seqs_*.fasta"), emit: sim_data
 
     script:
     """
@@ -42,7 +43,9 @@ process SIMULATE_DATA {
             --insert_rate ${params.insert_rate} \\
             --delete_rate ${params.delete_rate} \\
             --model "${params.model}" \\
-            --alpha ${alpha} \\
+            --alpha ${params.alpha} \\
+            --ics_prop ${ics_prop} \\
+            --ics_model_file ${projectDir}/../models/ics_model.nex \\
             --outtree true_tree_\${rep}.nwk \\
             --outfasta seqs_\${rep}.fasta \\
             --seed \${rep}
@@ -51,13 +54,13 @@ process SIMULATE_DATA {
 }
 
 process RUN_PWA_NJ {
-    tag "A=${alpha}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
+    tag "ICS=${ics_prop}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
     input:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
 
     output:
-    path("chunk_pwa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_pwa_nj_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("pwa_nj_*.nwk")
     path("pwa_matrix_*.phylip")
 
@@ -71,7 +74,6 @@ process RUN_PWA_NJ {
             --gap_open ${params.gap_open} \\
             --gap_extend ${params.gap_extend} \\
             --dist_model ${params.dist_model} \\
-            --alpha ${alpha} \\
             --tool ${params.nj_tool} \\
             --threads ${task.cpus}
 
@@ -81,21 +83,22 @@ process RUN_PWA_NJ {
             --pipeline PWA+NJ \\
             --distance ${dist} \\
             --length ${len} \\
-            --alpha ${alpha} \\
+            --alpha ${params.alpha} \\
+            --ics_prop ${ics_prop} \\
             --replicate \${rep} \\
-            --outcsv chunk_pwa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+            --outcsv chunk_pwa_nj_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
 
 process RUN_MAFFT {
-    tag "A=${alpha}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
+    tag "ICS=${ics_prop}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
     input:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
 
     output:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("msa_*.fasta"), emit: msa_data
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("msa_*.fasta"), emit: msa_data
 
     script:
     """
@@ -109,13 +112,13 @@ process RUN_MAFFT {
 }
 
 process RUN_MSA_NJ {
-    tag "A=${alpha}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
+    tag "ICS=${ics_prop}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
     input:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
 
     output:
-    path("chunk_msa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_msa_nj_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("msa_nj_*.nwk")
     path("msa_matrix_*.phylip")
 
@@ -127,7 +130,6 @@ process RUN_MSA_NJ {
             --outtree msa_nj_\${rep}.nwk \\
             --outmatrix msa_matrix_\${rep}.phylip \\
             --dist_model ${params.dist_model} \\
-            --alpha ${alpha} \\
             --tool ${params.nj_tool}
 
         python3 ${projectDir}/../bin/evaluate_trees.py \\
@@ -136,21 +138,22 @@ process RUN_MSA_NJ {
             --pipeline MSA+NJ \\
             --distance ${dist} \\
             --length ${len} \\
-            --alpha ${alpha} \\
+            --alpha ${params.alpha} \\
+            --ics_prop ${ics_prop} \\
             --replicate \${rep} \\
-            --outcsv chunk_msa_nj_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+            --outcsv chunk_msa_nj_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
 
 process RUN_MSA_ML {
-    tag "A=${alpha}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
+    tag "ICS=${ics_prop}_D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
     input:
-    tuple val(alpha), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
+    tuple val(ics_prop), val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
 
     output:
-    path("chunk_msa_ml_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
+    path("chunk_msa_ml_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("msa_ml_*.nwk")
     path("msa_ml_meta_*.json")
 
@@ -169,10 +172,11 @@ process RUN_MSA_ML {
             --pipeline MSA+ML \\
             --distance ${dist} \\
             --length ${len} \\
-            --alpha ${alpha} \\
+            --alpha ${params.alpha} \\
+            --ics_prop ${ics_prop} \\
             --replicate \${rep} \\
             --json msa_ml_meta_\${rep}.json \\
-            --outcsv chunk_msa_ml_A${alpha}_D${dist}_L${len}_chk${chunk_id}.csv
+            --outcsv chunk_msa_ml_ics_ICS${ics_prop}_D${dist}_L${len}_chk${chunk_id}.csv
     done
     """
 }
@@ -184,20 +188,20 @@ process COLLECT_AND_PLOT {
     path csv_files
 
     output:
-    path("benchmark_alpha_summary.csv")
-    path("alpha_scaling_curves.png")
-    path("alpha_scaling_curves.pdf"), optional: true
-    path("benchmark_alpha_statistics.csv")
+    path("benchmark_ics_summary.csv")
+    path("ics_scaling_benchmark.png")
+    path("ics_scaling_benchmark.pdf"), optional: true
+    path("benchmark_ics_statistics.csv")
 
     script:
     """
-    cat *.csv | awk 'NR==1 || \$0 !~ /^alpha/' > benchmark_alpha_summary.csv
-    python3 ${projectDir}/../bin/plot_alpha_benchmark.py --csv benchmark_alpha_summary.csv --outdir .
+    cat *.csv | awk 'NR==1 || \$0 !~ /^alpha/' > benchmark_ics_summary.csv
+    python3 ${projectDir}/../bin/plot_ics_benchmark.py --csv benchmark_ics_summary.csv --outdir .
     """
 }
 
 workflow {
-    ch_alphas    = Channel.fromList(params.alpha instanceof List ? params.alpha : [params.alpha])
+    ch_ics_props = Channel.fromList(params.ics_props instanceof List ? params.ics_props : [params.ics_props])
     ch_distances = Channel.fromList(params.distances)
     ch_lengths   = Channel.fromList(params.lengths)
 
@@ -208,7 +212,7 @@ workflow {
         [c, r_start, r_end]
     } )
 
-    ch_params = ch_alphas.combine(ch_distances).combine(ch_lengths).combine(ch_chunks)
+    ch_params = ch_ics_props.combine(ch_distances).combine(ch_lengths).combine(ch_chunks)
 
     SIMULATE_DATA(ch_params)
 
@@ -221,7 +225,7 @@ workflow {
     RUN_MAFFT(ch_sim_data)
     ch_msa_data = RUN_MAFFT.out.msa_data
 
-    // 3. MSA+NJ and MSA+ML pipelines (reuse shared MSA)
+    // 3. MSA+NJ and MSA+ML pipelines
     RUN_MSA_NJ(ch_msa_data)
     RUN_MSA_ML(ch_msa_data)
 
