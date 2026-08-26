@@ -73,6 +73,10 @@ def extract_lg_from_iqtree(iqtree_cmd=None):
 def build_ics_nexus_content(matrix_lines, freq_line, model_name="ICS"):
     """
     Builds NEXUS model definition for ICS by zeroing out cross-category exchangeabilities.
+    All amino acids within the same Dayhoff category maintain their empirical LG exchangeability.
+    Cross-category substitutions are strictly set to 0.0.
+    For singleton categories (Group 6: {C}), C cannot mutate to any other amino acid,
+    making C an invariant site when chosen at the root of an ICS site.
     """
     aa_to_group = {aa: gid for gid, g in enumerate(DAYHOFF_GROUPS) for aa in g}
 
@@ -89,7 +93,8 @@ def build_ics_nexus_content(matrix_lines, freq_line, model_name="ICS"):
         row_vals = []
         for j in range(i):
             aa1, aa2 = AA_ORDER[i], AA_ORDER[j]
-            if aa_to_group[aa1] == aa_to_group[aa2]:
+            g1, g2 = aa_to_group[aa1], aa_to_group[aa2]
+            if g1 == g2:
                 row_vals.append(f"{rates[i-1][j]:.6f}")
             else:
                 row_vals.append("0.000000")

@@ -151,8 +151,6 @@ def simulate_tree_and_sequences_with_alisim(
     prefix = out_fasta + ".alisim"
     tree_random_spec = f"RANDOM{{bd{{{birth_rate}/{death_rate}}}/{num_taxa}}}"
 
-    partition_file = None
-
     if ics_prop > 0.0:
         # Locate pre-generated ICS model NEXUS file
         resolved_model_file = None
@@ -170,27 +168,148 @@ def simulate_tree_and_sequences_with_alisim(
         if not resolved_model_file:
             raise RuntimeError("Error: Invariant Category Sites (ICS) NEXUS model file not found. Please generate it using 'python3 bin/generate_ics_model.py' first.")
 
-        partition_file = prefix + ".partition.nex"
-        generate_partition_nexus_file(
-            partition_file,
-            length=length,
-            ics_prop=ics_prop,
-            base_model=model,
-            alpha=alpha,
-            seed=seed
-        )
+        k_ics = int(round(length * ics_prop))
+        k_ics = max(1, min(length - 1, k_ics)) if 0.0 < ics_prop < 1.0 else (length if ics_prop >= 1.0 else 0)
+        k_lg = length - k_ics
 
-        cmd = [
-            iqtree_cmd,
-            "--alisim", prefix,
-            "--mdef", resolved_model_file,
-            "-q", partition_file,
-            "--seqtype", "AA",
-            "-t", tree_random_spec,
-            "--indel", f"{insert_rate},{delete_rate}",
-            "--branch-scale", str(distance),
-            "--redo"
-        ]
+        if k_ics == length:
+            # All sites are ICS
+            model_ics_str = format_model_string("ICS+G4", alpha) if "+G" in model else "ICS"
+            cmd = [
+                iqtree_cmd,
+                "--alisim", prefix,
+                "--mdef", resolved_model_file,
+                "-m", model_ics_str,
+                "--length", str(length),
+                "--seqtype", "AA",
+                "-t", tree_random_spec,
+                "--indel", f"{insert_rate},{delete_rate}",
+                "--branch-scale", str(distance),
+                "--redo"
+            ]
+            if seed is not None:
+                cmd.extend(["-seed", str(seed)])
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"Error: AliSim execution failed with returncode {res.returncode}.\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
+        else:
+            # 1. Simulate LG portion on random Birth-Death tree WITH indels
+            prefix_lg = prefix + "_lg"
+            model_lg_str = format_model_string(model, alpha)
+            cmd_lg = [
+                iqtree_cmd,
+                "--alisim", prefix_lg,
+                "-m", model_lg_str,
+                "--length", str(k_lg),
+                "-t", tree_random_spec,
+                "--indel", f"{insert_rate},{delete_rate}",
+                "--branch-scale", str(distance),
+                "--redo"
+            ]
+            if seed is not None:
+                cmd_lg.extend(["-seed", str(seed)])
+
+            res_lg = subprocess.run(cmd_lg, capture_output=True, text=True)
+            if res_lg.returncode != 0:
+                raise RuntimeError(f"Error: AliSim LG simulation failed with returncode {res_lg.returncode}.\nCommand: {' '.join(cmd_lg)}\nSTDOUT:\n{res_lg.stdout}\nSTDERR:\n{res_lg.stderr}")
+
+            alisim_treefile = prefix_lg + ".treefile"
+            if not (os.path.exists(alisim_treefile) and os.path.getsize(alisim_treefile) > 0):
+                alt_treefile = prefix_lg + ".tree"
+                if os.path.exists(alt_treefile) and os.path.getsize(alt_treefile) > 0:
+                    alisim_treefile = alt_treefile
+                else:
+                    raise RuntimeError(f"Error: AliSim did not produce expected output treefile: {alisim_treefile}")
+
+            # 2. Simulate ICS portion on the EXACT SAME true tree WITHOUT indels (ICS sites are invariant to indels)
+            prefix_ics = prefix + "_ics"
+            model_ics_str = format_model_string("ICS+G4", alpha) if "+G" in model else "ICS"
+            cmd_ics = [
+                iqtree_cmd,
+                "--alisim", prefix_ics,
+                "--mdef", resolved_model_file,
+                "-m", model_ics_str,
+                "--length", str(k_ics),
+                "-t", alisim_treefile,
+                "--seqtype", "AA",
+                "--redo"
+            ]
+            if seed is not None:
+                cmd_ics.extend(["-seed", str(seed + 10007)])
+
+            res_ics = subprocess.run(cmd_ics, capture_output=True, text=True)
+            if res_ics.returncode != 0:
+                raise RuntimeError(f"Error: AliSim ICS simulation failed with returncode {res_ics.returncode}.\nCommand: {' '.join(cmd_ics)}\nSTDOUT:\n{res_ics.stdout}\nSTDERR:\n{res_ics.stderr}")
+
+            # 3. Write True Tree
+            with open(alisim_treefile, "r") as f_in, open(out_tree, "w") as f_out:
+                tree_content = f_in.read()
+                f_out.write(tree_content)
+
+            # 4. Helper to load alignment records from AliSim output (.phy or .fa)
+            def load_alignment_records(pref):
+                fa_f = pref + ".fa"
+                phy_f = pref + ".phy"
+                if os.path.exists(fa_f) and os.path.getsize(fa_f) > 0:
+                    return {rec.id.strip("_"): str(rec.seq) for rec in SeqIO.parse(fa_f, "fasta")}
+                elif os.path.exists(phy_f) and os.path.getsize(phy_f) > 0:
+                    return {rec.id.strip("_"): str(rec.seq) for rec in SeqIO.parse(phy_f, "phylip")}
+                else:
+                    raise RuntimeError(f"Error: Could not find alignment output for prefix {pref}")
+
+            lg_aln = load_alignment_records(prefix_lg)
+            ics_aln = load_alignment_records(prefix_ics)
+
+            taxa_keys = list(lg_aln.keys())
+            if len(taxa_keys) < num_taxa:
+                raise RuntimeError(f"Error: AliSim generated only {len(taxa_keys)} taxa, expected {num_taxa}.")
+
+            lg_cols = len(lg_aln[taxa_keys[0]])
+
+            # 5. Interleave ICS sites evenly across the sequence length
+            # Divides the LG alignment into (k_ics + 1) chunks and places 1 indel-free ICS site between chunks
+            chunk_step = lg_cols / (k_ics + 1)
+            split_indices = [int(round(i * chunk_step)) for i in range(k_ics + 2)]
+
+            combined_msa = {}
+            for tid in taxa_keys:
+                seq_lg = lg_aln[tid]
+                seq_ics = ics_aln[tid]
+                chunks = []
+                for i in range(k_ics):
+                    chunks.append(seq_lg[split_indices[i]:split_indices[i+1]])
+                    chunks.append(seq_ics[i])
+                chunks.append(seq_lg[split_indices[k_ics]:split_indices[k_ics+1]])
+                combined_msa[tid] = "".join(chunks)
+
+            # Write combined unaligned FASTA (gaps removed)
+            with open(out_fasta, "w") as out_f:
+                for tid in taxa_keys:
+                    seq_clean = combined_msa[tid].replace("-", "")
+                    if len(seq_clean) < 1:
+                        raise RuntimeError(f"Error: Taxon {tid} has empty combined sequence.")
+                    out_f.write(f">{tid}\n{seq_clean}\n")
+
+            # Write combined True MSA if requested
+            if out_true_msa:
+                with open(out_true_msa, "w") as out_m:
+                    for tid in taxa_keys:
+                        out_m.write(f">{tid}\n{combined_msa[tid]}\n")
+
+            # Write True Patristic Distance Matrix if requested
+            if out_true_matrix:
+                export_true_patristic_matrix(out_tree, out_true_matrix, ordered_labels=taxa_keys)
+
+            # Clean up all temporary files from both runs
+            for p in [prefix_lg, prefix_ics]:
+                for ext in [".phy", ".unaligned.fa", ".fa", ".treefile", ".tree", ".log", ".iqtree"]:
+                    fpath = p + ext
+                    if os.path.exists(fpath):
+                        try:
+                            os.remove(fpath)
+                        except OSError:
+                            pass
+            return
     else:
         model_str = format_model_string(model, alpha)
         cmd = [
@@ -203,13 +322,12 @@ def simulate_tree_and_sequences_with_alisim(
             "--branch-scale", str(distance),
             "--redo"
         ]
+        if seed is not None:
+            cmd.extend(["-seed", str(seed)])
 
-    if seed is not None:
-        cmd.extend(["-seed", str(seed)])
-
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise RuntimeError(f"Error: AliSim execution failed with returncode {res.returncode}.\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"Error: AliSim execution failed with returncode {res.returncode}.\nCommand: {' '.join(cmd)}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")
 
     # 1. Process True Tree file
     alisim_treefile = prefix + ".treefile"
