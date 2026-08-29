@@ -1,25 +1,24 @@
 nextflow.enable.dsl=2
 
 /*
- * High Evolutionary Distance Benchmark Pipeline (Experiment 8)
- * Evaluates PWA+NJ, MSA+NJ, and MSA+ML under high evolutionary distances (D = 4.0, 5.0, 6.0).
- * Chunked / Batched Execution: Groups 10 replicates into a single task to maximize HPC throughput.
+ * Simple Condition(LG model) Benchmark Pipeiline (Experiment 9)
+ * Evaluates PWA+NJ, MSA+NJ, and MSA+ML.
+ * Chunked / Batched Execution: Groups 20 replicates into a single task to maximize HPC throughput.
  */
 params.taxa        = 32
-params.distances   = [4.0, 5.0, 6.0]
-params.lengths     = [300, 500, 1000, 1500]
+params.distances   = [0.1, 0.5, 1.0, 2.0, 3.0]
+params.lengths     = [100, 300, 500, 1000, 1500]
 params.replicates  = 100
-params.chunk_size  = 10
+params.chunk_size  = 20
 params.birth_rate  = 0.1
 params.death_rate  = 0.05
 params.insert_rate = 0.05
 params.delete_rate = 0.10
-params.model       = "LG+G4"
-params.alpha       = 1.0
+params.model       = "LG"
 params.dist_model  = "poisson"
 params.gap_open    = 10.0
 params.gap_extend  = 0.5
-params.outdir      = "results/results_high_dist"
+params.outdir      = "results/results_simple"
 params.nj_tool     = "rapidnj"
 
 process SIMULATE_DATA {
