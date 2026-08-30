@@ -90,4 +90,16 @@
 - Replicates: 100
 - 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`
 
+### 実験10（FastME オプション付き: LG+Gamma & SPR 最適化）
+- Taxon 数: $N = 32$
+- 進化距離: $D \in [0.1, 0.5, 1.0, 2.0, 3.0]$
+- 配列長: $L \in [100, 300, 500, 1000, 1500]$
+- ガンマ形状母数: $\alpha = 1.0$ (固定)
+- 置換モデル: `LG+G4`
+- Replicates: 100
+- 実行パイプライン:
+  - `MSA+FastME_LG_G`: MAFFT MSA $\to$ `fastme -i msa.phy -pL -g1.0 -s -q` (FastME 内蔵 LG+G 距離 + SPR トポロジー改善 + 三角不等式補正)
+  - `PWA+FastME_SPR`: PWA Poisson 距離行列 $\to$ `fastme -i pwa_matrix.phy -s -q` (PWA 距離行列に対する SPR トポロジー改善 + 三角不等式補正)
+  - `MSA+ML`: MAFFT MSA $\to$ IQ-TREE ML (`LG+G4`)
+
 
