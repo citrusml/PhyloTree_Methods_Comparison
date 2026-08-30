@@ -5,7 +5,6 @@ nextflow.enable.dsl=2
  * Evaluates:
  * 1. MSA + FastME_LG_G (MAFFT -> FastME with LG+Gamma model + SPR + TI correction)
  * 2. PWA + FastME_SPR  (PWA Poisson Matrix -> FastME with SPR + TI correction)
- * 3. MSA + ML          (MAFFT -> IQ-TREE ML reference)
  * across Distance D x Length L.
  * Chunked / Batched Execution: Groups 10 replicates into a single task.
  */
@@ -24,7 +23,6 @@ params.alpha       = 1.0
 params.dist_model  = "poisson"
 params.gap_open    = 10.0
 params.gap_extend  = 0.5
-params.run_ml      = true
 params.outdir      = "results/results_fastme_options"
 
 process SIMULATE_DATA {
@@ -152,41 +150,6 @@ process RUN_MSA_FASTME_LG_G {
     """
 }
 
-process RUN_MSA_ML {
-    tag "D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
-
-    input:
-    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(msas)
-
-    output:
-    path("chunk_msa_ml_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
-    path("msa_ml_*.nwk")
-
-    when:
-    params.run_ml
-
-    script:
-    """
-    for rep in \$(seq ${rep_start} ${rep_end}); do
-        python3 ${projectDir}/../bin/run_msa_ml.py \\
-            --msa msa_\${rep}.fasta \\
-            --outtree msa_ml_\${rep}.nwk \\
-            --model LG+G4 \\
-            --threads ${task.cpus}
-
-        python3 ${projectDir}/../bin/evaluate_trees.py \\
-            --truetree true_tree_\${rep}.nwk \\
-            --esttree msa_ml_\${rep}.nwk \\
-            --pipeline MSA+ML \\
-            --distance ${dist} \\
-            --length ${len} \\
-            --alpha ${params.alpha} \\
-            --replicate \${rep} \\
-            --outcsv chunk_msa_ml_D${dist}_L${len}_chk${chunk_id}.csv
-    done
-    """
-}
-
 process COLLECT_AND_PLOT {
     publishDir "${params.outdir}", mode: 'copy'
 
@@ -234,12 +197,8 @@ workflow {
     // 3. MSA + FastME_LG_G
     RUN_MSA_FASTME_LG_G(ch_msa_data)
 
-    // 4. MSA + ML (IQ-TREE)
-    RUN_MSA_ML(ch_msa_data)
-
     ch_all_csvs = RUN_PWA_FASTME_SPR.out.csv
         .mix(RUN_MSA_FASTME_LG_G.out.csv)
-        .mix(RUN_MSA_ML.out.csv)
         .collect()
 
     COLLECT_AND_PLOT(ch_all_csvs)

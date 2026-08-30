@@ -5,7 +5,7 @@ Location: bin/plot_fastme_options.py
 
 Generates:
 1. Multi-panel line plots of nRF vs Evolutionary Distance across Sequence Lengths (L=100, 300, 500, 1000, 1500).
-2. 2D Regime Map comparing PWA+FastME_SPR, MSA+FastME_LG_G, and MSA+ML accuracy.
+2. 2D Regime Map comparing PWA+FastME_SPR vs MSA+FastME_LG_G accuracy.
 3. Summary statistics pivot tables.
 """
 
@@ -30,7 +30,7 @@ plt.rcParams.update({
 PIPELINE_COLORS = {
     "PWA+FastME_SPR":   "#17becf",  # Cyan
     "MSA+FastME_LG_G":  "#bcbd22",  # Olive / Yellow-green
-    "MSA+ML":           "#2ca02c",  # Green
+    "MSA+ML":           "#2ca02c",  # Green (if present)
     "PWA+NJ":           "#1f77b4",  # Blue (if present)
     "MSA+NJ":           "#ff7f0e",  # Orange (if present)
 }
@@ -43,7 +43,7 @@ PIPELINE_MARKERS = {
     "MSA+NJ":           "d",
 }
 
-PIPELINE_ORDER = ["PWA+FastME_SPR", "MSA+FastME_LG_G", "MSA+ML"]
+PIPELINE_ORDER = ["PWA+FastME_SPR", "MSA+FastME_LG_G"]
 
 def plot_scaling_curves(df, outdir):
     """Plots Normalized RF Distance vs Evolutionary Distance D for each Sequence Length L."""

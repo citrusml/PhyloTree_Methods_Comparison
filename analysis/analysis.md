@@ -100,6 +100,5 @@
 - 実行パイプライン:
   - `MSA+FastME_LG_G`: MAFFT MSA $\to$ `fastme -i msa.phy -pL -g1.0 -s -q` (FastME 内蔵 LG+G 距離 + SPR トポロジー改善 + 三角不等式補正)
   - `PWA+FastME_SPR`: PWA Poisson 距離行列 $\to$ `fastme -i pwa_matrix.phy -s -q` (PWA 距離行列に対する SPR トポロジー改善 + 三角不等式補正)
-  - `MSA+ML`: MAFFT MSA $\to$ IQ-TREE ML (`LG+G4`)
 
 
