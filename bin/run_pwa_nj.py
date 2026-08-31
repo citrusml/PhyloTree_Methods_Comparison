@@ -55,8 +55,30 @@ def needleman_wunsch(seq1, seq2, aligner=None, gap_open=10.0, gap_extend=0.5):
     best_alignment = alignments[0]
     return str(best_alignment[0]), str(best_alignment[1])
 
-def compute_pairwise_p_distance(aligned1, aligned2):
-    """Calculates proportion of amino acid mismatches p excluding gap sites using NumPy vectorized operations."""
+def compute_pairwise_p_distance(
+    aligned1: str | np.ndarray,
+    aligned2: str | np.ndarray,
+    min_overlap: int = 10
+) -> float:
+    """
+    Calculates proportion of amino acid mismatches p excluding gap sites.
+
+    Parameters
+    ----------
+    aligned1 : str or numpy.ndarray
+        First aligned protein sequence.
+    aligned2 : str or numpy.ndarray
+        Second aligned protein sequence.
+    min_overlap : int, default=10
+        Minimum number of overlapping non-gap residue sites required.
+        If valid overlapping sites < min_overlap, returns fallback max proportion (0.94)
+        to prevent extreme distance fluctuations due to tiny overlaps.
+
+    Returns
+    -------
+    float
+        Mismatch proportion p (unitless, in range [0.0, 0.94]).
+    """
     if isinstance(aligned1, str):
         arr1 = np.frombuffer(aligned1.upper().encode('ascii'), dtype=np.uint8)
         arr2 = np.frombuffer(aligned2.upper().encode('ascii'), dtype=np.uint8)
@@ -68,46 +90,109 @@ def compute_pairwise_p_distance(aligned1, aligned2):
     valid_mask = (arr1 != gap_byte) & (arr2 != gap_byte)
     valid_sites = int(np.count_nonzero(valid_mask))
 
-    if valid_sites == 0:
-        return 0.94  # Max proportion fallback for 0 overlap
+    # Guard against zero or insufficient overlap (less than min_overlap residues)
+    if valid_sites < min_overlap:
+        return 0.94  # Max proportion fallback for insufficient overlap
 
     mismatches = int(np.count_nonzero(arr1[valid_mask] != arr2[valid_mask]))
     p = mismatches / valid_sites
     return min(p, 0.94)
 
-def calculate_poisson_distance(aligned1, aligned2):
+def calculate_poisson_distance(
+    aligned1: str | np.ndarray,
+    aligned2: str | np.ndarray,
+    min_overlap: int = 10
+) -> float:
     """
-    Computes standard Poisson evolutionary distance d from aligned sequence pair,
-    excluding gap sites (pairwise deletion).
-    Formula: d = -19/20 * ln(1 - 20/19 * p)
+    Computes standard Poisson evolutionary distance d from aligned sequence pair.
+
+    Parameters
+    ----------
+    aligned1 : str or numpy.ndarray
+        First aligned sequence.
+    aligned2 : str or numpy.ndarray
+        Second aligned sequence.
+    min_overlap : int, default=10
+        Minimum required overlapping residue sites.
+
+    Returns
+    -------
+    float
+        Estimated evolutionary distance d (expected substitutions per site, unitless).
     """
-    p = compute_pairwise_p_distance(aligned1, aligned2)
+    p = compute_pairwise_p_distance(aligned1, aligned2, min_overlap=min_overlap)
     term = 1.0 - (20.0 / 19.0) * p
     if term <= 0.001:
         term = 0.001
     d = - (19.0 / 20.0) * math.log(term)
     return max(0.0, d)
 
-def calculate_gamma_poisson_distance(aligned1, aligned2, alpha=1.0):
+def calculate_gamma_poisson_distance(
+    aligned1: str | np.ndarray,
+    aligned2: str | np.ndarray,
+    alpha: float = 1.0,
+    min_overlap: int = 10
+) -> float:
     """
     Computes Gamma-corrected Poisson evolutionary distance d from aligned sequence pair.
-    Formula: d = 19/20 * alpha * [(1 - 20/19 * p)^(-1/alpha) - 1]
+
+    Parameters
+    ----------
+    aligned1 : str or numpy.ndarray
+        First aligned sequence.
+    aligned2 : str or numpy.ndarray
+        Second aligned sequence.
+    alpha : float, default=1.0
+        Gamma shape parameter alpha (unitless).
+    min_overlap : int, default=10
+        Minimum required overlapping residue sites.
+
+    Returns
+    -------
+    float
+        Estimated evolutionary distance d (expected substitutions per site, unitless).
     """
     if alpha is None or alpha <= 0:
-        return calculate_poisson_distance(aligned1, aligned2)
+        return calculate_poisson_distance(aligned1, aligned2, min_overlap=min_overlap)
 
-    p = compute_pairwise_p_distance(aligned1, aligned2)
+    p = compute_pairwise_p_distance(aligned1, aligned2, min_overlap=min_overlap)
     term = 1.0 - (20.0 / 19.0) * p
     if term <= 0.001:
         term = 0.001
     d = (19.0 / 20.0) * alpha * (math.pow(term, -1.0 / alpha) - 1.0)
     return max(0.0, d)
 
-def calculate_distance(aligned1, aligned2, dist_model="poisson", alpha=1.0):
-    """Dispatches to either Poisson or Gamma-Poisson distance."""
+def calculate_distance(
+    aligned1: str | np.ndarray,
+    aligned2: str | np.ndarray,
+    dist_model: str = "poisson",
+    alpha: float = 1.0,
+    min_overlap: int = 10
+) -> float:
+    """
+    Dispatches to either Poisson or Gamma-Poisson distance calculation.
+
+    Parameters
+    ----------
+    aligned1 : str or numpy.ndarray
+        First aligned sequence.
+    aligned2 : str or numpy.ndarray
+        Second aligned sequence.
+    dist_model : str, default="poisson"
+        Distance model ('poisson' or 'gamma_poisson').
+    alpha : float, default=1.0
+        Gamma shape parameter alpha (used when dist_model='gamma_poisson').
+    min_overlap : int, default=10
+        Minimum required overlapping residue sites.
+
+    Returns
+    -------
+    float
+        Estimated evolutionary distance d (unitless).
+    """
     if dist_model == "gamma_poisson":
-        return calculate_gamma_poisson_distance(aligned1, aligned2, alpha=alpha)
-    return calculate_poisson_distance(aligned1, aligned2)
+        return calculate_gamma_poisson_distance(aligned1, aligned2, alpha=alpha, min_overlap=min_overlap)
+    return calculate_poisson_distance(aligned1, aligned2, min_overlap=min_overlap)
 
 def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
     """
