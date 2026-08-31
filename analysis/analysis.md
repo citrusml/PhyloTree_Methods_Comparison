@@ -101,4 +101,17 @@
   - `MSA+FastME_LG_G`: MAFFT MSA $\to$ `fastme -i msa.phy -pL -g1.0 -s -q` (FastME 内蔵 LG+G 距離 + SPR トポロジー改善 + 三角不等式補正)
   - `PWA+FastME_SPR`: PWA Poisson 距離行列 $\to$ `fastme -i pwa_matrix.phy -s -q` (PWA 距離行列に対する SPR トポロジー改善 + 三角不等式補正)
 
+### 実験11（全長 ICS モデル＋Indel: Full-length Invariant Category Sites with Indels）
+- Taxon 数: $N = 32$
+- 進化距離: $D \in [0.1, 0.5, 1.0, 2.0, 3.0]$
+- 配列長: $L \in [100, 300, 500, 1000, 1500]$
+- ICS 比率: $\mathrm{ics\_prop} = 1.0$ (全長 100% Dayhoff 6分類不変サイトモデル)
+- 挿入率: $\mathrm{insert\_rate} = 0.05$, 欠失率: $\mathrm{delete\_rate} = 0.10$ (Indel 許容)
+- ガンマ形状母数: $\alpha = 1.0$ (固定)
+- 置換モデル: `ICS+G4`
+- Replicates: 100
+- 実行パイプライン: `PWA+NJ` (PSA+NJ), `MSA+NJ`, `MSA+ML`
+- 実行スクリプト: `run_scripts/run_nextflow_ics_full.sh` (出力先: `results/results_ics_full`)
+
+
 
