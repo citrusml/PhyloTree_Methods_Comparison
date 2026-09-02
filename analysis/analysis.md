@@ -115,3 +115,43 @@
 
 
 
+### 実験12（基本パラメータ空間: 距離 $D$ $\times$ 配列長 $L$）<- 最低オーバーラップの影響を試す
+- Taxon 数 $N = 32$
+- 進化距離 $D \in [0.1, 0.5, 1.0, 2.0, 3.0]$
+- 配列長 $L \in [100, 300, 500, 1000, 1500]$
+- Replicates: 100
+- 置換モデル: `LG+G4`
+- $\alpha = 1.0$ (固定)
+- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `TRUE_DIST`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
+
+### 実験13（極めて高いギャップペナルティ Gap Open 20, Extension 2 ベンチマーク）
+- Taxon 数: $N = 32$
+- 進化距離: $D \in [0.1, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]$（計8水準）
+- 配列長: $L \in [300, 500, 1000, 1500]$（計4水準）
+- Replicates: 100
+- 置換モデル: `LG+G4`
+- ガンマ形状母数: $\alpha = 1.0$ (固定)
+- ギャップペナルティ: $\mathrm{Gap\ Open} = 20.0$, $\mathrm{Gap\ Extension} = 2.0$ (PhyPA / Xia 2016 準拠の高ペナルティ)
+- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `TRUE_PWA+NJ`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
+- Nextflowパイプライン: `next_main/main_high_gap.nf`
+- 設定ファイル: `next_configs/nextflow_high_gap.config`
+- 実行スクリプト: `run_scripts/run_nextflow_high_gap.sh`（出力先: `results/results_high_gap`）
+
+### 実験14（Zipfian べき乗則 Indel + 高ギャップペナルティ ベンチマーク）
+- Taxon 数: $N = 32$
+- 進化距離: $D \in [0.1, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]$（計8水準）
+- 配列長: $L \in [300, 500, 1000, 1500]$（計4水準）
+- Replicates: 100
+- 置換モデル: `LG+G4`
+- ガンマ形状母数: $\alpha = 1.0$ (固定)
+- **Indel 長さ分布: Zipfian べき乗則 (`POW{1.7/50}`) — べき指数 $a=1.7$, 最大 50 残基**
+  - 論文 (Matsui & Iwasaki 2020, *Systematic Biology*) および Fletcher & Yang (2009) の INDELible デフォルト設定に準拠
+  - `AliSim --indel-size POW{1.7/50},POW{1.7/50}` を指定
+  - 挿入・欠失ともに同一のべき乗則分布（対称設定）
+- Indel 発生頻度: 挿入率 = 0.05, 欠失率 = 0.05（置換率に対する相対値）
+- ギャップペナルティ: $\mathrm{Gap\ Open} = 20.0$, $\mathrm{Gap\ Extension} = 2.0$ (PhyPA / Xia 2016 準拠の高ペナルティ)
+- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `TRUE_PWA+NJ`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
+- 統一Nextflowパイプライン: `next_main/main.nf`
+- 設定ファイル: `next_configs/nextflow_zipfian_indel.config`
+- 実行スクリプト: `run_scripts/run_nextflow_zipfian_indel.sh`（出力先: `results/results_zipfian_indel`）
+- **実験の目的**: 幾何分布 Indel（実験13）では MSA+ML が優位のまま。Zipfian べき乗則 Indel の導入により、MSA アンカーが破壊されて ML が崩壊し、`PWA+NJ` が ML を逆転するかを検証する（論文 Fig. 3a の現象再現）。

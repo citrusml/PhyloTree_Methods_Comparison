@@ -137,6 +137,7 @@ def simulate_tree_and_sequences_with_alisim(
     alpha=1.0,
     ics_prop=0.0,
     ics_model_file=None,
+    indel_size=None,
     seed=None
 ):
     """
@@ -187,6 +188,8 @@ def simulate_tree_and_sequences_with_alisim(
                 "--branch-scale", str(distance),
                 "--redo"
             ]
+            if indel_size is not None:
+                cmd.extend(["--indel-size", str(indel_size)])
             if seed is not None:
                 cmd.extend(["-seed", str(seed)])
             res = subprocess.run(cmd, capture_output=True, text=True)
@@ -206,6 +209,8 @@ def simulate_tree_and_sequences_with_alisim(
                 "--branch-scale", str(distance),
                 "--redo"
             ]
+            if indel_size is not None:
+                cmd_lg.extend(["--indel-size", str(indel_size)])
             if seed is not None:
                 cmd_lg.extend(["-seed", str(seed)])
 
@@ -322,6 +327,8 @@ def simulate_tree_and_sequences_with_alisim(
             "--branch-scale", str(distance),
             "--redo"
         ]
+        if indel_size is not None:
+            cmd.extend(["--indel-size", str(indel_size)])
         if seed is not None:
             cmd.extend(["-seed", str(seed)])
 
@@ -411,7 +418,8 @@ def main():
     parser.add_argument("--death_rate", type=float, default=0.05, help="Death rate for Birth-Death tree model (default: 0.05)")
     parser.add_argument("--insert_rate", type=float, default=0.05, help="Insertion rate relative to substitutions (default: 0.05)")
     parser.add_argument("--delete_rate", type=float, default=0.10, help="Deletion rate relative to substitutions (default: 0.10)")
-    parser.add_argument("--indel_rate", type=float, default=None, help="Symmetric indel rate for both insertion and deletion (overrides insert/delete if specified)")
+    parser.add_argument("--indel_size", type=str, default=None,
+                        help="AliSim indel size distribution (e.g. 'POW{1.7/50},POW{1.7/50}'). Default: geometric distribution.")
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for LG+G4 (default: 1.0)")
     parser.add_argument("--model", type=str, default="LG+G4", help="Substitution model prefix (default: LG+G4)")
     parser.add_argument("--ics_prop", type=float, default=0.0, help="Proportion of Invariant Category Sites (ICS) under Dayhoff 6 classes (default: 0.0)")
@@ -423,8 +431,8 @@ def main():
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args()
 
-    insert_rate = args.insert_rate if args.indel_rate is None else args.indel_rate
-    delete_rate = args.delete_rate if args.indel_rate is None else args.indel_rate
+    insert_rate = args.insert_rate
+    delete_rate = args.delete_rate
 
     base_seed = args.seed if args.seed is not None else random.randint(1, 1000000)
     max_trials = 10
@@ -451,10 +459,12 @@ def main():
                 alpha=args.alpha,
                 ics_prop=args.ics_prop,
                 ics_model_file=args.ics_model_file,
+                indel_size=args.indel_size,
                 seed=current_seed
             )
             used_model_str = f"{args.model}(ics_prop={args.ics_prop})" if args.ics_prop > 0 else format_model_string(args.model, args.alpha)
-            print(f"Simulated data generated (trial {trial+1}/{max_trials}): Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, bd={{{args.birth_rate}/{args.death_rate}}}, model={used_model_str}, indel={{{insert_rate},{delete_rate}}})")
+            indel_size_str = f", indel_size={args.indel_size}" if args.indel_size else ""
+            print(f"Simulated data generated (trial {trial+1}/{max_trials}): Tree -> {args.outtree}, FASTA -> {args.outfasta} (N={args.num_taxa}, D={args.distance}, L={args.length}, bd={{{args.birth_rate}/{args.death_rate}}}, model={used_model_str}, indel={{{insert_rate},{delete_rate}}}{indel_size_str})")
             return
         except Exception as e:
             last_error = e
