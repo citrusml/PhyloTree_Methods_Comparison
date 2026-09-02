@@ -44,9 +44,14 @@ PIPELINE_COLORS = {
     "PWA+NJ": "#1f77b4",       # Blue
     "MSA+NJ": "#ff7f0e",       # Orange
     "MSA+ML": "#2ca02c",       # Green
+    "TRUE_PWA+NJ": "#17becf",  # Cyan
     "TRUE_MSA+NJ": "#9467bd",  # Purple
     "TRUE_MSA+ML": "#8c564b",  # Brown
-    "TRUE_DIST+NJ": "#d62728"  # Red
+    "TRUE_DIST+NJ": "#d62728", # Red
+    "PWA+FastME": "#e377c2",   # Pink
+    "MSA+FastME": "#bcbd22",   # Olive
+    "PWA+FastME_SPR": "#e377c2",
+    "MSA+FastME_LG_G": "#bcbd22",
 }
 
 # ==========================================
@@ -148,6 +153,14 @@ def generate_method_comparisons(df, outdir):
         delta = grid_msa_ml - grid_true_ml  # >0: Alignment error degraded ML accuracy
         _plot_heatmap(delta, "Alignment Error Penalty (ML): MSA+ML vs TRUE_MSA+ML\n(ΔnRF = MSA+ML - TRUE_MSA+ML)",
                       r"$\Delta nRF$ (>0: Alignment Error Degraded Tree)", os.path.join(comp_dir, "comparison_alignment_loss_ml.png"))
+
+    # PWA+NJ vs TRUE_PWA+NJ
+    if "PWA+NJ" in pipes and "TRUE_PWA+NJ" in pipes:
+        grid_pwa = get_grid("PWA+NJ")
+        grid_true_pwa = get_grid("TRUE_PWA+NJ")
+        delta = grid_pwa - grid_true_pwa
+        _plot_heatmap(delta, "PWA vs True PWA Alignment: PWA+NJ vs TRUE_PWA+NJ\n(ΔnRF = PWA+NJ - TRUE_PWA+NJ)",
+                      r"$\Delta nRF$ (>0: True PWA wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_true_pwa_nj.png"))
 
     # PWA+NJ vs TRUE_MSA+NJ (How close PWA gets to ideal True MSA NJ)
     if "PWA+NJ" in pipes and "TRUE_MSA+NJ" in pipes:
@@ -251,10 +264,18 @@ def _plot_heatmap(delta_grid, title, cbar_label, out_path):
     print(f"Generated: {out_path}")
 
 def generate_boxplots(df, outdir):
-    """Generates 5x5 grid of nRF distribution boxplots with mean annotations."""
+    """Generates grid of nRF distribution boxplots with mean annotations across all conditions."""
     distances = sorted(df["distance"].unique())
     lengths = sorted(df["length"].unique())
-    pipes = [p for p in ["PWA+NJ", "MSA+NJ", "MSA+ML", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ"] if p in df["pipeline"].unique()]
+    
+    # Preferred ordering of known pipelines
+    preferred_order = [
+        "PWA+NJ", "MSA+NJ", "MSA+ML",
+        "TRUE_PWA+NJ", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ",
+        "PWA+FastME", "MSA+FastME", "PWA+FastME_SPR", "MSA+FastME_LG_G"
+    ]
+    present_pipes = list(df["pipeline"].unique())
+    pipes = [p for p in preferred_order if p in present_pipes] + [p for p in present_pipes if p not in preferred_order]
 
     fig, axes = plt.subplots(
         nrows=len(distances),
@@ -270,7 +291,9 @@ def generate_boxplots(df, outdir):
     elif len(lengths) == 1:
         axes = np.array([[ax] for ax in axes])
 
-    palette = {p: PIPELINE_COLORS.get(p, "#333333") for p in pipes}
+    # Dynamic palette fallback to avoid any missing keys
+    default_colors = sns.color_palette("tab10", len(pipes))
+    palette = {p: PIPELINE_COLORS.get(p, default_colors[i % len(default_colors)]) for i, p in enumerate(pipes)}
 
     for r, d in enumerate(distances):
         for c, l in enumerate(lengths):
