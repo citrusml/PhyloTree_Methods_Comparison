@@ -1,35 +1,27 @@
 nextflow.enable.dsl=2
 
 /*
- * Unified Phylogenetic Benchmark Pipeline (next_main/main.nf)
+ * Unified Phylogenetic Benchmark Pipeline (main.nf)
  *
- * 全実験共通のコアワークフロー。
+ * 全実験共通のコアワークフロー（プロジェクトルート用エントリポイント）。
  * 各プロセスは `modules/` 配下の独立したモジュールファイルからインポートされます。
  * 実験ごとの条件（Indelモデル、置換モデル、ギャップペナルティ、距離・配列長・反復数など）は、
  * すべて `next_configs/*.config` の `params` ブロックで指定します。
  *
- * Pipelines supported:
- *   - PWA+NJ (BioPython Needleman-Wunsch + Poisson distance + RapidNJ)
- *   - MSA+NJ (MAFFT + Poisson distance + RapidNJ)
- *   - MSA+ML (MAFFT + IQ-TREE 2 ModelFinder)
- *   - TRUE_PWA+NJ (True alignment + Poisson distance + RapidNJ)
- *   - TRUE_MSA+NJ (True alignment + Poisson distance + RapidNJ)
- *   - TRUE_MSA+ML (True alignment + IQ-TREE 2 ModelFinder)
- *
  * Execution:
- *   nextflow run next_main/main.nf -c next_configs/your_experiment.config -profile supercomputer
+ *   nextflow run main.nf -c next_configs/your_experiment.config -profile supercomputer
  */
 
 // モジュールのインポート
-include { SIMULATE_DATA }    from '../modules/simulate_data'
-include { RUN_PWA_NJ }       from '../modules/run_pwa_nj'
-include { RUN_MAFFT }        from '../modules/run_mafft'
-include { RUN_MSA_NJ }       from '../modules/run_msa_nj'
-include { RUN_MSA_ML }       from '../modules/run_msa_ml'
-include { RUN_TRUE_PWA_NJ }  from '../modules/run_true_pwa_nj'
-include { RUN_TRUE_MSA_NJ }  from '../modules/run_true_msa_nj'
-include { RUN_TRUE_MSA_ML }  from '../modules/run_true_msa_ml'
-include { COLLECT_AND_PLOT } from '../modules/collect_and_plot'
+include { SIMULATE_DATA }    from './modules/simulate_data'
+include { RUN_PWA_NJ }       from './modules/run_pwa_nj'
+include { RUN_MAFFT }        from './modules/run_mafft'
+include { RUN_MSA_NJ }       from './modules/run_msa_nj'
+include { RUN_MSA_ML }       from './modules/run_msa_ml'
+include { RUN_TRUE_PWA_NJ }  from './modules/run_true_pwa_nj'
+include { RUN_TRUE_MSA_NJ }  from './modules/run_true_msa_nj'
+include { RUN_TRUE_MSA_ML }  from './modules/run_true_msa_ml'
+include { COLLECT_AND_PLOT } from './modules/collect_and_plot'
 
 workflow {
     def dist_list = (params.distances instanceof Collection) ? params.distances.flatten() : [params.distances]
