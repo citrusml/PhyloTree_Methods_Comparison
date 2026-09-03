@@ -13,6 +13,7 @@ process COLLECT_AND_PLOT {
     path("summary_statistics.csv"), optional: true
     path("method_comparisons"), optional: true
     path("length_analysis"), optional: true
+    path("replications"), optional: true
 
     script:
     """

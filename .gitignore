@@ -3,6 +3,7 @@
 /papers/*
 .DS_Store
 /bin/__pycache__
+**/__pycache__
 /memo
 /logs/*
 test/

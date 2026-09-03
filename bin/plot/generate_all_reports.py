@@ -21,10 +21,12 @@ import os
 import re
 import sys
 import glob
+import json
 import shutil
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
+from typing import Dict, List, Tuple, Optional, Any, Union
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -44,12 +46,15 @@ PIPELINE_COLORS = {
     "PWA+NJ": "#1f77b4",       # Blue
     "MSA+NJ": "#ff7f0e",       # Orange
     "MSA+ML": "#2ca02c",       # Green
+    "MSA+BI": "#d62728",       # Red (MrBayes Bayesian Inference)
+    "GS": "#9467bd",           # Purple (Matsui & Iwasaki 2020 Graph Splitting)
     "TRUE_PWA+NJ": "#17becf",  # Cyan
-    "TRUE_MSA+NJ": "#9467bd",  # Purple
-    "TRUE_MSA+ML": "#8c564b",  # Brown
-    "TRUE_DIST+NJ": "#d62728", # Red
-    "PWA+FastME": "#e377c2",   # Pink
-    "MSA+FastME": "#bcbd22",   # Olive
+    "TRUE_MSA+NJ": "#8c564b",  # Brown
+    "TRUE_MSA+ML": "#e377c2",  # Pink
+    "TRUE_MSA+BI": "#bcbd22",  # Olive
+    "TRUE_DIST+NJ": "#7f7f7f", # Grey
+    "PWA+FastME": "#e377c2",
+    "MSA+FastME": "#bcbd22",
     "PWA+FastME_SPR": "#e377c2",
     "MSA+FastME_LG_G": "#bcbd22",
 }
@@ -185,6 +190,38 @@ def generate_method_comparisons(df, outdir):
         delta = grid_true_nj - grid_true_ml
         _plot_heatmap(delta, "Intrinsic Algorithm Performance: TRUE_MSA+NJ vs TRUE_MSA+ML\n(ΔnRF = TRUE_MSA+NJ - TRUE_MSA+ML)",
                       r"$\Delta nRF$ (>0: ML wins, <0: NJ wins)", os.path.join(comp_dir, "comparison_true_ml_vs_true_nj.png"))
+
+    # GS (Graph Splitting) Comparisons
+    if "GS" in pipes:
+        grid_gs = get_grid("GS")
+        if "PWA+NJ" in pipes:
+            delta = grid_pwa - grid_gs
+            _plot_heatmap(delta, "Pairwise Benchmark: PWA+NJ vs GS (Graph Splitting)\n(ΔnRF = PWA+NJ - GS)",
+                          r"$\Delta nRF$ (>0: GS wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_gs.png"))
+        if "MSA+ML" in pipes:
+            delta = grid_ml - grid_gs
+            _plot_heatmap(delta, "Regime Map: MSA+ML vs GS (Graph Splitting)\n(ΔnRF = MSA+ML - GS)",
+                          r"$\Delta nRF$ (>0: GS wins, <0: ML wins)", os.path.join(comp_dir, "comparison_ml_vs_gs.png"))
+        if "MSA+NJ" in pipes:
+            delta = grid_nj - grid_gs
+            _plot_heatmap(delta, "Regime Map: MSA+NJ vs GS (Graph Splitting)\n(ΔnRF = MSA+NJ - GS)",
+                          r"$\Delta nRF$ (>0: GS wins, <0: NJ wins)", os.path.join(comp_dir, "comparison_nj_vs_gs.png"))
+
+    # MSA+BI (MrBayes) Comparisons
+    if "MSA+BI" in pipes:
+        grid_bi = get_grid("MSA+BI")
+        if "MSA+ML" in pipes:
+            delta = grid_ml - grid_bi
+            _plot_heatmap(delta, "Likelihood vs Bayesian: MSA+ML vs MSA+BI (MrBayes)\n(ΔnRF = MSA+ML - MSA+BI)",
+                          r"$\Delta nRF$ (>0: BI wins, <0: ML wins)", os.path.join(comp_dir, "comparison_ml_vs_bi.png"))
+        if "PWA+NJ" in pipes:
+            delta = grid_pwa - grid_bi
+            _plot_heatmap(delta, "Regime Map: PWA+NJ vs MSA+BI (MrBayes)\n(ΔnRF = PWA+NJ - MSA+BI)",
+                          r"$\Delta nRF$ (>0: BI wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_bi.png"))
+        if "GS" in pipes:
+            delta = grid_gs - grid_bi
+            _plot_heatmap(delta, "Graph Splitting vs Bayesian: GS vs MSA+BI (MrBayes)\n(ΔnRF = GS - MSA+BI)",
+                          r"$\Delta nRF$ (>0: BI wins, <0: GS wins)", os.path.join(comp_dir, "comparison_gs_vs_bi.png"))
 
     # -------------------------------------------------------------
     # 3. True Patristic Distance Matrix Benchmark Comparisons
@@ -474,21 +511,702 @@ def analyze_sequence_lengths(scan_dir, outdir):
     print(f"Generated: {len_plot}")
 
 # ==========================================
-# 3. Replication Artifact Harvesting
+# 3. Replication Artifact Harvesting & Visual Reports (1 Replicate per Condition)
 # ==========================================
 
-def organize_replications_from_work(work_dir, rep_outdir, mode="copy", threads=16):
+TARGET_REPLICATE_FILES = {
+    # Sequences & Alignments
+    "seqs.fasta": ["seqs_{rep}.fasta", "seqs.fasta", "unaligned.fasta", "sim_{rep}.unaligned.fa"],
+    "true_msa.fasta": ["true_msa_{rep}.fasta", "true_msa.fasta", "sim_{rep}.fa"],
+    "msa.fasta": ["msa_{rep}.fasta", "msa.fasta", "mafft_msa.fasta"],
+
+    # Distance Matrices
+    "pwa_matrix.phylip": ["pwa_matrix_{rep}.phylip", "pwa_matrix.phylip"],
+    "msa_matrix.phylip": ["msa_matrix_{rep}.phylip", "msa_matrix.phylip"],
+    "true_matrix.phylip": ["true_matrix_{rep}.phylip", "true_matrix.phylip"],
+    "true_pwa_matrix.phylip": ["true_pwa_matrix_{rep}.phylip", "true_pwa_matrix.phylip"],
+    "true_msa_matrix.phylip": ["true_msa_matrix_{rep}.phylip", "true_msa_matrix.phylip"],
+
+    # Phylogenetic Trees
+    "true_tree.nwk": ["true_tree_{rep}.nwk", "true_tree.nwk", "sim_{rep}.treefile", "sim_{rep}.tree"],
+    "pwa_nj.nwk": ["pwa_nj_{rep}.nwk", "pwa_nj.nwk"],
+    "msa_nj.nwk": ["msa_nj_{rep}.nwk", "msa_nj.nwk"],
+    "msa_ml.nwk": ["msa_ml_{rep}.nwk", "msa_ml.nwk"],
+    "msa_bi.nwk": ["msa_bi_{rep}.nwk", "msa_bi.nwk"],
+    "gs.nwk": ["gs_{rep}.nwk", "gs.nwk"],
+    "true_pwa_nj.nwk": ["true_pwa_nj_{rep}.nwk", "true_pwa_nj.nwk"],
+    "true_msa_nj.nwk": ["true_msa_nj_{rep}.nwk", "true_msa_nj.nwk"],
+    "true_msa_ml.nwk": ["true_msa_ml_{rep}.nwk", "true_msa_ml.nwk"],
+    "true_msa_bi.nwk": ["true_msa_bi_{rep}.nwk", "true_msa_bi.nwk"],
+    "true_dist_nj.nwk": ["true_dist_nj_{rep}.nwk", "true_dist_nj.nwk"],
+
+    # Metadata
+    "msa_ml_meta.json": ["msa_ml_meta_{rep}.json", "msa_ml_meta.json"],
+    "true_msa_ml_meta.json": ["true_msa_ml_meta_{rep}.json", "true_msa_ml_meta.json"]
+}
+
+
+def extract_condition_info(task_dir: str) -> Optional[Dict[str, Any]]:
     """
-    Harvests all tree files, FASTA, MSAs, and matrices from work/ into results/replications/
+    Extracts experimental condition parameters (distance D, length L, taxa N, chunk, replicate)
+    from a Nextflow task directory.
+
+    Parameters
+    ----------
+    task_dir : str
+        Path to the Nextflow task execution directory inside work/.
+
+    Returns
+    -------
+    Optional[Dict[str, Any]]
+        Dictionary containing extracted condition metadata ('cond_key', 'dist', 'length', 'taxa', 'chunk', 'rep'),
+        or None if no condition metadata could be determined.
+    """
+    # 1. Inspect CSV filenames in task directory
+    csv_files = glob.glob(os.path.join(task_dir, "*.csv"))
+    for cf in csv_files:
+        bname = os.path.basename(cf)
+        if bname.startswith(".") or "benchmark" in bname:
+            continue
+        m_taxa_chk = re.search(r"_N(\d+)_D([\d\.]+)_L(\d+)_chk(\d+)\.csv$", bname)
+        if m_taxa_chk:
+            taxa, dist, length, chk = m_taxa_chk.groups()
+            return {"cond_key": f"N{taxa}_D{dist}_L{length}", "dist": float(dist), "length": int(length), "taxa": int(taxa), "chunk": int(chk), "rep": None}
+        m_std_chk = re.search(r"_D([\d\.]+)_L(\d+)_chk(\d+)\.csv$", bname)
+        if m_std_chk:
+            dist, length, chk = m_std_chk.groups()
+            return {"cond_key": f"D{dist}_L{length}", "dist": float(dist), "length": int(length), "taxa": None, "chunk": int(chk), "rep": None}
+        m_taxa_rep = re.search(r"_N(\d+)_D([\d\.]+)_L(\d+)_rep(\d+)\.csv$", bname)
+        if m_taxa_rep:
+            taxa, dist, length, rep = m_taxa_rep.groups()
+            return {"cond_key": f"N{taxa}_D{dist}_L{length}", "dist": float(dist), "length": int(length), "taxa": int(taxa), "chunk": None, "rep": int(rep)}
+        m_std_rep = re.search(r"_D([\d\.]+)_L(\d+)_rep(\d+)\.csv$", bname)
+        if m_std_rep:
+            dist, length, rep = m_std_rep.groups()
+            return {"cond_key": f"D{dist}_L{length}", "dist": float(dist), "length": int(length), "taxa": None, "chunk": None, "rep": int(rep)}
+
+    # 2. Inspect .command.run
+    cmd_run = os.path.join(task_dir, ".command.run")
+    if os.path.exists(cmd_run):
+        try:
+            with open(cmd_run, "r", errors="ignore") as rf:
+                txt = rf.read()
+            m_tag = re.search(r"(?:NXF_TASK_TAG|# NEXTFLOW TASK:[^(\n]*\()\s*['\"]?(?:N=(\d+)_)?D=([\d\.]+)_L=(\d+)(?:_chk=(\d+))?(?:\[(\d+)\.\.(\d+)\])?(?:_rep=(\d+))?['\"]?", txt)
+            if m_tag:
+                taxa, dist, length, chk, r_start, r_end, rep = m_tag.groups()
+                rep_val = int(rep) if rep else (int(r_start) if r_start else None)
+                cond_key = f"N{taxa}_D{dist}_L{length}" if taxa else f"D{dist}_L{length}"
+                return {
+                    "cond_key": cond_key,
+                    "dist": float(dist),
+                    "length": int(length),
+                    "taxa": int(taxa) if taxa else None,
+                    "chunk": int(chk) if chk else None,
+                    "rep": rep_val
+                }
+        except Exception:
+            pass
+
+    # 3. Inspect .command.sh
+    cmd_sh = os.path.join(task_dir, ".command.sh")
+    if os.path.exists(cmd_sh):
+        try:
+            with open(cmd_sh, "r", errors="ignore") as sf:
+                txt = sf.read()
+            dist_m = re.search(r"--(?:distance|branch-scale)\s+([\d\.]+)", txt)
+            len_m = re.search(r"--length\s+(\d+)", txt)
+            taxa_m = re.search(r"(?:--num_taxa\s+(\d+)|/(\d+)\}\")", txt)
+            rep_m = re.search(r"--(?:seed|replicate)\s+(\d+)|-seed\s+(\d+)", txt)
+            if dist_m and len_m:
+                dist = float(dist_m.group(1))
+                length = int(len_m.group(1))
+                taxa = int(taxa_m.group(1) or taxa_m.group(2)) if taxa_m else None
+                rep_val = int(rep_m.group(1) or rep_m.group(2)) if rep_m else None
+                cond_key = f"N{taxa}_D{dist}_L{length}" if taxa else f"D{dist}_L{length}"
+                return {
+                    "cond_key": cond_key,
+                    "dist": dist,
+                    "length": length,
+                    "taxa": taxa,
+                    "chunk": None,
+                    "rep": rep_val
+                }
+        except Exception:
+            pass
+
+    return None
+
+
+def scan_work_condition_replicates(
+    work_dir: str,
+    target_rep: int = 1
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Scans Nextflow work/ directory and indexes all artifact files for target replicate per condition.
+
+    Parameters
+    ----------
+    work_dir : str
+        Path to Nextflow work/ directory.
+    target_rep : int, optional
+        Target replicate number to harvest for each condition (default: 1).
+
+    Returns
+    -------
+    Dict[str, Dict[str, Any]]
+        Mapping of condition key to dictionary with metadata and matched filepaths.
+    """
+    print(f"Scanning Nextflow work directory '{work_dir}' for replicate {target_rep} artifacts across conditions...")
+    task_dirs = set()
+    for marker in [".command.sh", ".command.run"]:
+        for p in glob.glob(os.path.join(work_dir, "**", marker), recursive=True):
+            task_dirs.add(os.path.dirname(p))
+
+    conditions: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"metadata": {}, "files": {}})
+
+    for t_dir in sorted(task_dirs):
+        exit_file = os.path.join(t_dir, ".exitcode")
+        if os.path.exists(exit_file):
+            try:
+                with open(exit_file, "r") as ef:
+                    if ef.read().strip() != "0":
+                        continue
+            except Exception:
+                pass
+
+        info = extract_condition_info(t_dir)
+        if not info:
+            continue
+
+        cond_key = info["cond_key"]
+        if not conditions[cond_key]["metadata"]:
+            conditions[cond_key]["metadata"] = info
+
+        # Search for target replicate artifacts in this task directory
+        for canonical_name, patterns in TARGET_REPLICATE_FILES.items():
+            if canonical_name in conditions[cond_key]["files"]:
+                continue
+            for pat in patterns:
+                fname = pat.format(rep=target_rep)
+                cand_path = os.path.join(t_dir, fname)
+                if os.path.exists(cand_path) and os.path.getsize(cand_path) > 0:
+                    conditions[cond_key]["files"][canonical_name] = cand_path
+                    break
+
+    print(f"Identified {len(conditions)} unique experimental conditions in '{work_dir}'.")
+    return conditions
+
+
+def compute_tree_nrf(true_tree_file: str, est_tree_file: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Computes Robinson-Foulds (RF) and normalized Robinson-Foulds (nRF) distance using DendroPy.
+
+    Parameters
+    ----------
+    true_tree_file : str
+        Path to ground-truth Newick tree.
+    est_tree_file : str
+        Path to estimated Newick tree.
+
+    Returns
+    -------
+    Tuple[Optional[float], Optional[float]]
+        (rf_distance, nrf_distance). Returns (None, None) if calculation fails.
+    """
+    try:
+        import dendropy
+        from dendropy.calculate import treecompare
+        tns = dendropy.TaxonNamespace()
+        t_true = dendropy.Tree.get(path=true_tree_file, schema="newick", taxon_namespace=tns, preserve_underscores=True)
+        t_est = dendropy.Tree.get(path=est_tree_file, schema="newick", taxon_namespace=tns, preserve_underscores=True)
+        t_true.is_rooted = False
+        t_true.deroot()
+        t_est.is_rooted = False
+        t_est.deroot()
+        t_true.encode_bipartitions()
+        t_est.encode_bipartitions()
+        rf = treecompare.symmetric_difference(t_true, t_est)
+        num_taxa = len(tns)
+        max_rf = 2 * (num_taxa - 3)
+        nrf = rf / max_rf if max_rf > 0 else 0.0
+        return float(rf), float(nrf)
+    except Exception:
+        return None, None
+
+
+def parse_phylip_matrix(matrix_file: str) -> Tuple[List[str], np.ndarray]:
+    """
+    Parses a PHYLIP format distance matrix.
+
+    Parameters
+    ----------
+    matrix_file : str
+        Path to PHYLIP matrix file.
+
+    Returns
+    -------
+    Tuple[List[str], np.ndarray]
+        Taxa names list and NxN numpy distance matrix.
+    """
+    with open(matrix_file, "r") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    if not lines:
+        raise ValueError(f"Empty PHYLIP matrix file: {matrix_file}")
+
+    n_taxa = int(lines[0].split()[0])
+    names: List[str] = []
+    mat = np.zeros((n_taxa, n_taxa), dtype=float)
+    for i, line in enumerate(lines[1:n_taxa + 1]):
+        tokens = line.split()
+        names.append(tokens[0])
+        mat[i, :] = [float(x) for x in tokens[1:n_taxa + 1]]
+    return names, mat
+
+
+def compute_patristic_matrix_from_tree(tree_file: str, taxon_order: List[str]) -> Optional[np.ndarray]:
+    """
+    Computes pairwise patristic distance matrix from a Newick tree for specified taxon order.
+
+    Parameters
+    ----------
+    tree_file : str
+        Path to Newick tree.
+    taxon_order : List[str]
+        Ordered list of taxon names.
+
+    Returns
+    -------
+    Optional[np.ndarray]
+        NxN patristic distance matrix, or None if calculation fails.
+    """
+    try:
+        import dendropy
+        tns = dendropy.TaxonNamespace(taxon_order)
+        tree = dendropy.Tree.get(path=tree_file, schema="newick", taxon_namespace=tns, preserve_underscores=True)
+        pdm = tree.phylogenetic_distance_matrix()
+        N = len(taxon_order)
+        mat = np.zeros((N, N), dtype=float)
+        for i, t1 in enumerate(taxon_order):
+            tx1 = tns.get_taxon(t1)
+            for j, t2 in enumerate(taxon_order):
+                if i != j:
+                    tx2 = tns.get_taxon(t2)
+                    mat[i, j] = pdm.distance(tx1, tx2)
+        return mat
+    except Exception:
+        return None
+
+
+def plot_replicate_trees(
+    tree_files: Dict[str, str],
+    out_path: str,
+    true_tree_file: Optional[str] = None
+) -> None:
+    """
+    Draws a multi-panel visual comparison of phylogenetic trees for a single replicate.
+
+    Parameters
+    ----------
+    tree_files : Dict[str, str]
+        Dictionary of {method_label: nwk_filepath}.
+    out_path : str
+        Output PNG image path.
+    true_tree_file : Optional[str], optional
+        Path to the true tree Newick file for nRF comparison.
+    """
+    try:
+        from Bio import Phylo
+    except ImportError:
+        print("Warning: Bio.Phylo is not available. Skipping tree plot.")
+        return
+
+    method_order = [
+        ("true_tree.nwk", "True Tree (Reference)"),
+        ("pwa_nj.nwk", "PWA + NJ"),
+        ("msa_nj.nwk", "MSA + NJ"),
+        ("msa_ml.nwk", "MSA + ML"),
+        ("msa_bi.nwk", "MSA + BI (MrBayes)"),
+        ("gs.nwk", "Graph Splitting (GS)"),
+        ("true_pwa_nj.nwk", "True PWA + NJ"),
+        ("true_msa_nj.nwk", "True MSA + NJ"),
+        ("true_msa_ml.nwk", "True MSA + ML"),
+        ("true_msa_bi.nwk", "True MSA + BI"),
+        ("true_dist_nj.nwk", "True Dist + NJ")
+    ]
+
+    selected = []
+    for k, lbl in method_order:
+        if k in tree_files and os.path.exists(tree_files[k]):
+            selected.append((k, lbl, tree_files[k]))
+
+    for k, p in tree_files.items():
+        if k.endswith(".nwk") and k not in [m[0] for m in method_order] and os.path.exists(p):
+            selected.append((k, k.replace(".nwk", "").replace("_", " ").upper(), p))
+
+    if not selected:
+        return
+
+    n_trees = len(selected)
+    ncols = min(4, n_trees)
+    nrows = int(np.ceil(n_trees / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 5.0, nrows * 4.5), squeeze=False)
+    ax_flat = axes.flatten()
+
+    ref_tree_path = true_tree_file or tree_files.get("true_tree.nwk")
+
+    for idx, (key, label, path) in enumerate(selected):
+        ax = ax_flat[idx]
+        try:
+            tree = Phylo.read(path, "newick")
+            title = label
+            if key != "true_tree.nwk" and ref_tree_path and os.path.exists(ref_tree_path):
+                _, nrf = compute_tree_nrf(ref_tree_path, path)
+                if nrf is not None:
+                    title += f"\n(nRF = {nrf:.3f})"
+            Phylo.draw(tree, axes=ax, do_show=False)
+            ax.set_title(title, fontsize=11, fontweight="bold", pad=10)
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_visible(False)
+            ax.spines["bottom"].set_visible(False)
+            ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        except Exception as e:
+            ax.text(0.5, 0.5, f"Could not render:\n{label}\n({e})", ha="center", va="center", fontsize=9)
+            ax.set_title(label, fontsize=10, fontweight="bold")
+            ax.axis("off")
+
+    for idx in range(n_trees, len(ax_flat)):
+        ax_flat[idx].axis("off")
+
+    plt.suptitle("Phylogenetic Trees Comparison (1 Replicate Sample)", fontsize=14, fontweight="bold", y=0.99)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_replicate_distance_matrices(
+    matrix_files: Dict[str, str],
+    out_path: str,
+    true_tree_file: Optional[str] = None
+) -> None:
+    """
+    Plots side-by-side heatmaps of pairwise distance matrices for a single replicate.
+
+    Parameters
+    ----------
+    matrix_files : Dict[str, str]
+        Dictionary of {matrix_name: phylip_filepath}.
+    out_path : str
+        Output PNG image path.
+    true_tree_file : Optional[str], optional
+        Optional path to true tree to compute true patristic distance matrix if not in files.
+    """
+    parsed: Dict[str, Tuple[List[str], np.ndarray]] = {}
+
+    for k, p in matrix_files.items():
+        if k.endswith(".phylip") and os.path.exists(p):
+            try:
+                names, mat = parse_phylip_matrix(p)
+                label = k.replace("_matrix.phylip", "").replace(".phylip", "").upper()
+                parsed[label] = (names, mat)
+            except Exception:
+                pass
+
+    # Compute true patristic distance matrix if true_tree is provided
+    if "TRUE" not in parsed and true_tree_file and os.path.exists(true_tree_file):
+        base_names = next(iter(parsed.values()))[0] if parsed else None
+        if base_names:
+            true_mat = compute_patristic_matrix_from_tree(true_tree_file, base_names)
+            if true_mat is not None:
+                parsed["TRUE PATRISTIC"] = (base_names, true_mat)
+
+    if not parsed:
+        return
+
+    # Add difference panel if PWA and MSA are both present
+    diff_mat = None
+    diff_taxa = None
+    if "PWA" in parsed and "MSA" in parsed:
+        pwa_names, pwa_mat = parsed["PWA"]
+        msa_names, msa_mat = parsed["MSA"]
+        if pwa_names == msa_names:
+            diff_mat = pwa_mat - msa_mat
+            diff_taxa = pwa_names
+
+    panels = list(parsed.items())
+    if diff_mat is not None and diff_taxa is not None:
+        panels.append(("DIFFERENCE (PWA - MSA)", (diff_taxa, diff_mat)))
+
+    n_panels = len(panels)
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.2 * n_panels, 4.8), squeeze=False)
+    ax_flat = axes.flatten()
+
+    # Calculate common max for distance matrices
+    max_d = max(np.max(mat) for lbl, (_, mat) in panels if "DIFFERENCE" not in lbl)
+    max_d = max(0.1, max_d)
+
+    for idx, (label, (taxa, mat)) in enumerate(panels):
+        ax = ax_flat[idx]
+        if "DIFFERENCE" in label:
+            cmap = sns.diverging_palette(240, 10, as_cmap=True)
+            vlim = max(0.01, np.max(np.abs(mat)))
+            sns.heatmap(mat, cmap=cmap, vmin=-vlim, vmax=vlim, center=0,
+                        xticklabels=taxa, yticklabels=taxa, ax=ax,
+                        cbar_kws={'label': 'Δ Distance (PWA - MSA)'})
+        else:
+            sns.heatmap(mat, cmap="viridis", vmin=0.0, vmax=max_d,
+                        xticklabels=taxa, yticklabels=taxa, ax=ax,
+                        cbar_kws={'label': 'Substitutions / site'})
+        ax.set_title(f"{label} Matrix", fontsize=11, fontweight="bold", pad=10)
+        ax.tick_params(axis='both', labelsize=8)
+
+    plt.suptitle("Pairwise Distance Matrix Heatmaps (1 Replicate Sample)", fontsize=13, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_replicate_msa_overview(
+    fasta_files: Dict[str, str],
+    out_path: str
+) -> None:
+    """
+    Plots sequence length distribution and alignment gap density across positions.
+
+    Parameters
+    ----------
+    fasta_files : Dict[str, str]
+        Dictionary containing paths to 'seqs.fasta', 'msa.fasta', and optionally 'true_msa.fasta'.
+    out_path : str
+        Output PNG image path.
+    """
+    try:
+        from Bio import SeqIO
+    except ImportError:
+        print("Warning: Bio.SeqIO is not available. Skipping MSA overview plot.")
+        return
+
+    seqs_path = fasta_files.get("seqs.fasta")
+    msa_path = fasta_files.get("msa.fasta")
+    true_msa_path = fasta_files.get("true_msa.fasta")
+
+    if not seqs_path and not msa_path:
+        return
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+
+    # 1. Sequence Length per Taxon
+    if seqs_path and os.path.exists(seqs_path):
+        seq_records = list(SeqIO.parse(seqs_path, "fasta"))
+        taxa = [r.id for r in seq_records]
+        lengths = [len(str(r.seq).replace("-", "")) for r in seq_records]
+
+        y_pos = np.arange(len(taxa))
+        ax1.barh(y_pos, lengths, color="#1f77b4", alpha=0.8, edgecolor="#0d47a1")
+        ax1.set_yticks(y_pos)
+        ax1.set_yticklabels(taxa, fontsize=8)
+        ax1.set_xlabel("Remaining Sequence Length (aa)", fontsize=10, fontweight="bold")
+        ax1.set_title("Unaligned Sequence Length per Taxon", fontsize=11, fontweight="bold")
+        ax1.grid(axis="x", linestyle="--", alpha=0.7)
+    else:
+        ax1.axis("off")
+
+    # 2. Alignment Gap Fraction Profile
+    has_msa = msa_path and os.path.exists(msa_path)
+    has_true_msa = true_msa_path and os.path.exists(true_msa_path)
+
+    if has_msa or has_true_msa:
+        if has_msa:
+            msa_recs = list(SeqIO.parse(msa_path, "fasta"))
+            if msa_recs:
+                n_tax = len(msa_recs)
+                aln_len = len(msa_recs[0].seq)
+                gap_counts = np.zeros(aln_len)
+                for r in msa_recs:
+                    s = str(r.seq)
+                    for col_idx in range(min(aln_len, len(s))):
+                        if s[col_idx] == "-":
+                            gap_counts[col_idx] += 1
+                gap_pct = (gap_counts / n_tax) * 100.0
+                ax2.plot(range(1, aln_len + 1), gap_pct, label=f"MAFFT Inferred MSA (len={aln_len})", color="#ff7f0e", lw=1.2)
+
+        if has_true_msa:
+            true_recs = list(SeqIO.parse(true_msa_path, "fasta"))
+            if true_recs:
+                n_tax = len(true_recs)
+                aln_len = len(true_recs[0].seq)
+                gap_counts = np.zeros(aln_len)
+                for r in true_recs:
+                    s = str(r.seq)
+                    for col_idx in range(min(aln_len, len(s))):
+                        if s[col_idx] == "-":
+                            gap_counts[col_idx] += 1
+                gap_pct = (gap_counts / n_tax) * 100.0
+                ax2.plot(range(1, aln_len + 1), gap_pct, label=f"True MSA (len={aln_len})", color="#2ca02c", lw=1.2, linestyle="--")
+
+        ax2.set_xlabel("Alignment Position (site index)", fontsize=10, fontweight="bold")
+        ax2.set_ylabel("Gap Proportion (%)", fontsize=10, fontweight="bold")
+        ax2.set_ylim(-2, 102)
+        ax2.set_title("Alignment Gap Profile Across Sites", fontsize=11, fontweight="bold")
+        ax2.legend(loc="upper right", fontsize=9)
+        ax2.grid(True, linestyle="--", alpha=0.7)
+    else:
+        ax2.axis("off")
+
+    plt.suptitle("Multiple Sequence Alignment & Indel Overview", fontsize=13, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def create_condition_replications_from_work(
+    work_dir: str,
+    rep_outdir: str,
+    target_rep: int = 1,
+    generate_plots: bool = True,
+    mode: str = "copy",
+    threads: int = 16
+) -> None:
+    """
+    Extracts 1 replicate (MSA, distance matrices, trees) per condition from Nextflow work/
+    directory, saves them into structured folders under results/replications/, and generates
+    visual comparison reports.
+
+    Parameters
+    ----------
+    work_dir : str
+        Path to Nextflow work/ directory.
+    rep_outdir : str
+        Output destination directory (e.g., results/replications/).
+    target_rep : int, optional
+        Replicate ID to extract (default: 1).
+    generate_plots : bool, optional
+        Whether to generate visual comparison figures (default: True).
+    mode : str, optional
+        File transfer mode: 'copy' or 'hardlink' (default: 'copy').
+    threads : int, optional
+        Number of worker threads (default: 16).
+    """
+    cond_data = scan_work_condition_replicates(work_dir, target_rep=target_rep)
+    if not cond_data:
+        print(f"Warning: No valid condition artifacts found in '{work_dir}'.", file=sys.stderr)
+        return
+
+    os.makedirs(rep_outdir, exist_ok=True)
+    summary_records = []
+
+    print(f"\nProcessing {len(cond_data)} conditions for replicate {target_rep} into '{rep_outdir}'...")
+
+    for cond_key, item in sorted(cond_data.items()):
+        meta = item["metadata"]
+        files = item["files"]
+        if not files:
+            continue
+
+        cond_folder = f"{cond_key}_rep{target_rep}"
+        dest_dir = os.path.join(rep_outdir, cond_folder)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        copied_paths: Dict[str, str] = {}
+        for canonical_name, src_file in files.items():
+            dst_file = os.path.join(dest_dir, canonical_name)
+            if os.path.exists(dst_file):
+                try:
+                    os.remove(dst_file)
+                except OSError:
+                    pass
+            if mode == "hardlink":
+                try:
+                    os.link(src_file, dst_file)
+                    copied_paths[canonical_name] = dst_file
+                    continue
+                except OSError:
+                    pass
+            shutil.copy2(src_file, dst_file)
+            copied_paths[canonical_name] = dst_file
+
+        # Evaluate nRF distances for summary
+        true_tree_file = copied_paths.get("true_tree.nwk")
+        nrf_results: Dict[str, float] = {}
+        if true_tree_file and os.path.exists(true_tree_file):
+            for fname, fpath in copied_paths.items():
+                if fname.endswith(".nwk") and fname != "true_tree.nwk":
+                    pipe_name = fname.replace(".nwk", "").upper()
+                    _, nrf = compute_tree_nrf(true_tree_file, fpath)
+                    if nrf is not None:
+                        nrf_results[pipe_name] = nrf
+
+        # Visualizations
+        if generate_plots:
+            # 1. Trees comparison
+            tree_files = {k: v for k, v in copied_paths.items() if k.endswith(".nwk")}
+            if tree_files:
+                tree_plot_path = os.path.join(dest_dir, "trees_comparison.png")
+                plot_replicate_trees(tree_files, tree_plot_path, true_tree_file=true_tree_file)
+
+            # 2. Distance matrices
+            mat_files = {k: v for k, v in copied_paths.items() if k.endswith(".phylip")}
+            if mat_files:
+                mat_plot_path = os.path.join(dest_dir, "distance_matrices.png")
+                plot_replicate_distance_matrices(mat_files, mat_plot_path, true_tree_file=true_tree_file)
+
+            # 3. MSA overview
+            fasta_files = {k: v for k, v in copied_paths.items() if k.endswith(".fasta")}
+            if fasta_files:
+                msa_plot_path = os.path.join(dest_dir, "msa_overview.png")
+                plot_replicate_msa_overview(fasta_files, msa_plot_path)
+
+        # Write replicate summary JSON
+        summary_dict = {
+            "condition": cond_key,
+            "replicate": target_rep,
+            "distance": meta.get("dist"),
+            "initial_length": meta.get("length"),
+            "taxa": meta.get("taxa"),
+            "nrf_distances": nrf_results,
+            "harvested_files": list(copied_paths.keys())
+        }
+        with open(os.path.join(dest_dir, "summary.json"), "w") as jf:
+            json.dump(summary_dict, jf, indent=2)
+
+        record = {
+            "condition": cond_key,
+            "distance": meta.get("dist"),
+            "length": meta.get("length"),
+            "taxa": meta.get("taxa"),
+            "replicate": target_rep,
+            **{f"nrf_{k.lower()}": v for k, v in nrf_results.items()}
+        }
+        summary_records.append(record)
+
+    if summary_records:
+        summary_df = pd.DataFrame(summary_records)
+        summary_csv = os.path.join(rep_outdir, "replications_summary.csv")
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"Generated replications summary table: {summary_csv}")
+
+    print(f"Successfully harvested and visualized 1 replicate per condition in '{rep_outdir}'!")
+
+
+def organize_replications_from_work(work_dir: str, rep_outdir: str, mode: str = "copy", threads: int = 16) -> None:
+    """
+    Harvests all tree files, FASTA, MSAs, and matrices across all replicates from work/ into results/replications/
     """
     try:
         from bin.organize_replications import organize_replications
         organize_replications(work_dir, rep_outdir, mode=mode, threads=threads)
     except ImportError:
-        # Fallback if imported from different path
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from organize_replications import organize_replications
-        organize_replications(work_dir, rep_outdir, mode=mode, threads=threads)
+        try:
+            from organize_replications import organize_replications
+            organize_replications(work_dir, rep_outdir, mode=mode, threads=threads)
+        except ImportError:
+            print("Notice: Fallback to condition-wise single replicate organizer.")
+            create_condition_replications_from_work(work_dir, rep_outdir, target_rep=1, mode=mode, threads=threads)
+
 
 # ==========================================
 # Main CLI Entry Point
@@ -497,19 +1215,24 @@ def organize_replications_from_work(work_dir, rep_outdir, mode="copy", threads=1
 def main():
     parser = argparse.ArgumentParser(description="Integrated Benchmark Reporting, Sequence Length Analysis, and Replication Organizer")
     parser.add_argument("--csv", help="Path to aggregated benchmark_summary.csv")
-    parser.add_argument("--workdir", help="Path to Nextflow work/ directory (optional: enables auto-aggregation & organization)")
+    parser.add_argument("--workdir", help="Path to Nextflow work/ directory (optional: enables auto-aggregation & replication harvesting)")
     parser.add_argument("--repdir", help="Path to results/replications/ directory (optional: for sequence length analysis)")
     parser.add_argument("--outdir", default="results", help="Output directory for reports and figures (default: results)")
-    parser.add_argument("--organize_replications", action="store_true", help="Harvest and organize all replication files from work/ into results/replications/")
+    parser.add_argument("--organize_replications", action="store_true", help="Harvest all replication files from work/ into results/replications/")
+    parser.add_argument("--create_replications", action="store_true", default=None,
+                        help="Extract 1 replicate per condition (MSA, distance matrices, trees) and generate visual reports into outdir/replications/")
+    parser.add_argument("--target_rep", type=int, default=1, help="Replicate ID to extract per condition (default: 1)")
+    parser.add_argument("--no_rep_plots", action="store_true", help="Skip generating visual comparison plots in replication folders")
     parser.add_argument("--mode", choices=["copy", "hardlink"], default="copy", help="Transfer mode for replication files (default: copy)")
+    parser.add_argument("--threads", type=int, default=16, help="Number of worker threads (default: 16)")
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
+    rep_dst = args.repdir or os.path.join(args.outdir, "replications")
 
     # 1. Phylogenetic Benchmark Analysis
     csv_file = args.csv
     if not csv_file and args.workdir:
-        # Auto-discover CSV
         cand = os.path.join(args.outdir, "benchmark_summary.csv")
         if os.path.exists(cand):
             csv_file = cand
@@ -524,16 +1247,34 @@ def main():
             generate_summary_table(df, args.outdir)
 
     # 2. Sequence Length Analysis
-    scan_source = args.repdir or (os.path.join(args.outdir, "replications") if os.path.exists(os.path.join(args.outdir, "replications")) else args.workdir)
+    scan_source = args.repdir or (rep_dst if os.path.exists(rep_dst) else args.workdir)
     if scan_source and os.path.exists(scan_source):
         analyze_sequence_lengths(scan_source, args.outdir)
 
-    # 3. Replication Artifact Harvesting
-    if args.organize_replications and args.workdir and os.path.exists(args.workdir):
-        rep_dst = args.repdir or os.path.join(args.outdir, "replications")
-        organize_replications_from_work(args.workdir, rep_dst, mode=args.mode)
+    # 3. Condition-wise 1 Replicate Harvesting & Visual Report Generation
+    # Triggered if:
+    #   - args.create_replications is explicitly set to True, OR
+    #   - args.workdir is provided and exists (and args.create_replications is not False and not args.organize_replications)
+    should_create_reps = (
+        args.create_replications is True or
+        (args.workdir and os.path.exists(args.workdir) and args.create_replications is not False and not args.organize_replications)
+    )
+
+    if should_create_reps and args.workdir and os.path.exists(args.workdir):
+        create_condition_replications_from_work(
+            work_dir=args.workdir,
+            rep_outdir=rep_dst,
+            target_rep=args.target_rep,
+            generate_plots=not args.no_rep_plots,
+            mode=args.mode,
+            threads=args.threads
+        )
+    elif args.organize_replications and args.workdir and os.path.exists(args.workdir):
+        organize_replications_from_work(args.workdir, rep_dst, mode=args.mode, threads=args.threads)
 
     print(f"\nAll post-processing reports and analyses completed in '{args.outdir}'!")
 
+
 if __name__ == "__main__":
     main()
+
