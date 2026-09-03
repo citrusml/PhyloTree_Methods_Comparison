@@ -151,7 +151,7 @@
 - Indel 発生頻度: 挿入率 = 0.05, 欠失率 = 0.05（置換率に対する相対値）
 - ギャップペナルティ: $\mathrm{Gap\ Open} = 20.0$, $\mathrm{Gap\ Extension} = 2.0$ (PhyPA / Xia 2016 準拠の高ペナルティ)
 - 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `TRUE_PWA+NJ`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
-- 統一Nextflowパイプライン: `next_main/main.nf`
+- 統一Nextflowパイプライン: `main.nf`
 - 設定ファイル: `next_configs/nextflow_zipfian_indel.config`
 - 実行スクリプト: `run_scripts/run_nextflow_zipfian_indel.sh`（出力先: `results/results_zipfian_indel`）
 - **実験の目的**: 幾何分布 Indel（実験13）では MSA+ML が優位のまま。Zipfian べき乗則 Indel の導入により、MSA アンカーが破壊されて ML が崩壊し、`PWA+NJ` が ML を逆転するかを検証する（論文 Fig. 3a の現象再現）。

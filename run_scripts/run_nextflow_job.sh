@@ -14,4 +14,4 @@ cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 mkdir -p logs
 
 # リアルタイムに進捗ログを出力して実行 (いつでも tail -f logs/nextflow_live.log で確認可能)
-nextflow run next_main/main.nf -c next_configs/nextflow.config -profile supercomputer -resume > logs/nextflow.log 2>&1
+nextflow run main.nf -c next_configs/nextflow.config -profile supercomputer -resume > logs/nextflow.log 2>&1

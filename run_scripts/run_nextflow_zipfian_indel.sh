@@ -24,7 +24,7 @@ export NXF_OPTS="-Xms2g -Xmx12g"
 #   - 挿入率 / 欠失率: 0.05 / 0.05 (置換率に対する相対値)
 #   - ギャップペナルティ: Gap Open=20, Extension=2 (PhyPA準拠)
 echo "[$(date)] 実験14 (Zipfian Indel Benchmark) 開始"
-nextflow run next_main/main.nf \
+nextflow run main.nf \
     -c next_configs/nextflow_zipfian_indel.config \
     -profile supercomputer \
     -resume \
