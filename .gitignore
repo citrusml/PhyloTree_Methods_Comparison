@@ -10,5 +10,7 @@ scratch
 analysis/example
 tests/
 status.md
-syz049.pdf
+syz049*
 research1
+bin/gs2
+dataset
