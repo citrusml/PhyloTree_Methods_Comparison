@@ -24,46 +24,68 @@ process SIMULATE_DATA {
         exit 1
     fi
     for rep in \$(seq ${rep_start} ${rep_end}); do
-        if [ "${is_paper_yule}" = "true" ]; then
-            python3 ${moduleDir}/../bin/generate_tree.py \\
-                --taxa ${params.taxa} \\
-                --scale ${dist} \\
-                --seed \${rep} \\
-                --model paper_yule \\
-                --rate_sd ${rate_sd} \\
-                --lba_ratio ${lba_ratio} \\
-                --outtree true_tree_\${rep}.nwk
+        sim_ok=false
+        for attempt in \$(seq 0 19); do
+            cur_seed=\$((rep + attempt * 100000))
+            if [ "${is_paper_yule}" = "true" ]; then
+                python3 ${moduleDir}/../bin/generate_tree.py \\
+                    --taxa ${params.taxa} \\
+                    --scale ${dist} \\
+                    --seed \${cur_seed} \\
+                    --model paper_yule \\
+                    --rate_sd ${rate_sd} \\
+                    --lba_ratio ${lba_ratio} \\
+                    --outtree true_tree_\${rep}.nwk
 
-            \${IQTREE_BIN} --alisim sim_\${rep} \\
-                -m "${model_str}" \\
-                --length ${len} \\
-                -t true_tree_\${rep}.nwk \\
-                --indel ${params.insert_rate},${params.delete_rate} \\
-                ${indel_size_arg} \\
-                -af fasta \\
-                -seed \${rep} \\
-                --redo
-        else
-            \${IQTREE_BIN} --alisim sim_\${rep} \\
-                -m "${model_str}" \\
-                --length ${len} \\
-                -t "RANDOM{bd{${params.birth_rate}/${params.death_rate}}/${params.taxa}}" \\
-                --indel ${params.insert_rate},${params.delete_rate} \\
-                ${indel_size_arg} \\
-                --branch-scale ${dist} \\
-                -af fasta \\
-                -seed \${rep} \\
-                --redo
-
-            if [ -f sim_\${rep}.treefile ]; then
-                mv sim_\${rep}.treefile true_tree_\${rep}.nwk
+                if \${IQTREE_BIN} --alisim sim_\${rep} \\
+                    -m "${model_str}" \\
+                    --length ${len} \\
+                    -t true_tree_\${rep}.nwk \\
+                    --indel ${params.insert_rate},${params.delete_rate} \\
+                    ${indel_size_arg} \\
+                    -af fasta \\
+                    -seed \${cur_seed} \\
+                    --redo > alisim_\${rep}.log 2>&1; then
+                    if [ -f "sim_\${rep}.unaligned.fa" ] && [ -f "sim_\${rep}.fa" ]; then
+                        sim_ok=true
+                        break
+                    fi
+                fi
             else
-                mv sim_\${rep}.tree true_tree_\${rep}.nwk
+                if \${IQTREE_BIN} --alisim sim_\${rep} \\
+                    -m "${model_str}" \\
+                    --length ${len} \\
+                    -t "RANDOM{bd{${params.birth_rate}/${params.death_rate}}/${params.taxa}}" \\
+                    --indel ${params.insert_rate},${params.delete_rate} \\
+                    ${indel_size_arg} \\
+                    --branch-scale ${dist} \\
+                    -af fasta \\
+                    -seed \${cur_seed} \\
+                    --redo > alisim_\${rep}.log 2>&1; then
+                    if [ -f "sim_\${rep}.unaligned.fa" ] && [ -f "sim_\${rep}.fa" ]; then
+                        if [ -f sim_\${rep}.treefile ]; then
+                            mv sim_\${rep}.treefile true_tree_\${rep}.nwk
+                        elif [ -f sim_\${rep}.tree ]; then
+                            mv sim_\${rep}.tree true_tree_\${rep}.nwk
+                        fi
+                        sim_ok=true
+                        break
+                    fi
+                fi
             fi
+        done
+
+        if [ "\${sim_ok}" != "true" ]; then
+            echo "Error: AliSim simulation failed for replicate \${rep} after 20 attempts." >&2
+            if [ -f "alisim_\${rep}.log" ]; then
+                cat alisim_\${rep}.log >&2
+            fi
+            exit 2
         fi
 
         mv sim_\${rep}.unaligned.fa seqs_\${rep}.fasta
         mv sim_\${rep}.fa true_msa_\${rep}.fasta
+        rm -f alisim_\${rep}.log
     done
     """
 }
