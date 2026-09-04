@@ -167,11 +167,11 @@
   - トポロジー: 後退 Yule 過程（Backward Yule Process / Coalescent 型ランダム二分岐合流樹）
   - 枝長サンプリング: 各エッジ長 $l$ を独立に対数分布 $l = 1 - \ln(u \cdot (e - 1) + 1)$（$u \sim \mathrm{Uniform}(0, 1)$）から抽出
   - 枝長伸縮: 進化距離 $D$ による全体スケーリング（$l_{\text{scaled}} = l \times D$）
-  - 生成スクリプト: `src/tree_generator.py` および `bin/generate_tree.py`
+  - 生成スクリプト: `bin/generate_tree.py`（標準ライブラリのみで自立動作）
 - Indel 長さ分布: Zipfian べき乗則 (`POW{1.7/50}`) — べき指数 $a=1.7$, 最大 50 残基
-- Indel 発生頻度: 挿入率 = 0.05, 欠失率 = 0.05（置換率に対する相対値）
+- Indel 発生頻度: 挿入率 = 0.10, 欠失率 = 0.10（置換率に対する相対値: 10%引き上げ、論文 Fig. 3a 条件）
 - ギャップペナルティ: $\mathrm{Gap\ Open} = 20.0$, $\mathrm{Gap\ Extension} = 2.0$ (PhyPA / Xia 2016 準拠の高ペナルティ)
-- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `GS`, `TRUE_PWA+NJ`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
+- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML` (IQ-TREE 2), `MSA+RAXML` (RAxML -f d), `GS`, 各種 True MSA 対照群
 - 統一Nextflowパイプライン: `main.nf`
 - 設定ファイル: `next_configs/nextflow_paper_tree.config`
 - 実行スクリプト: `run_scripts/run_nextflow_paper_tree.sh`（出力先: `results/results_paper_tree`）
