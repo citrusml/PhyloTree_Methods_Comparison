@@ -57,7 +57,7 @@ def main():
         try:
             with open(args.json, "r") as f:
                 meta = json.load(f)
-                best_model = meta.get("best_model_bic", "N/A")
+                best_model = meta.get("best_model_bic", meta.get("model", "N/A"))
                 gamma_alpha = str(meta.get("gamma_alpha", "N/A"))
         except Exception:
             pass

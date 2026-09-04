@@ -15,3 +15,6 @@ syz049*
 research1
 bin/gs2
 dataset
+work/
+.nextflow*
+.pytest_cache/

@@ -45,12 +45,14 @@ plt.rcParams.update({
 PIPELINE_COLORS = {
     "PWA+NJ": "#1f77b4",       # Blue
     "MSA+NJ": "#ff7f0e",       # Orange
-    "MSA+ML": "#2ca02c",       # Green
+    "MSA+ML": "#2ca02c",       # Green (IQ-TREE 2)
+    "MSA+RAXML": "#006400",    # Dark Green (RAxML -f d)
     "MSA+BI": "#d62728",       # Red (MrBayes Bayesian Inference)
     "GS": "#9467bd",           # Purple (Matsui & Iwasaki 2020 Graph Splitting)
     "TRUE_PWA+NJ": "#17becf",  # Cyan
     "TRUE_MSA+NJ": "#8c564b",  # Brown
-    "TRUE_MSA+ML": "#e377c2",  # Pink
+    "TRUE_MSA+ML": "#e377c2",  # Pink (True IQ-TREE 2)
+    "TRUE_MSA+RAXML": "#c49c94", # Rosy brown (True RAxML -f d)
     "TRUE_MSA+BI": "#bcbd22",  # Olive
     "TRUE_DIST+NJ": "#7f7f7f", # Grey
     "PWA+FastME": "#e377c2",
@@ -223,6 +225,32 @@ def generate_method_comparisons(df, outdir):
             _plot_heatmap(delta, "Graph Splitting vs Bayesian: GS vs MSA+BI (MrBayes)\n(ΔnRF = GS - MSA+BI)",
                           r"$\Delta nRF$ (>0: BI wins, <0: GS wins)", os.path.join(comp_dir, "comparison_gs_vs_bi.png"))
 
+    # RAxML (-f d) Comparisons (Paper syz049 benchmark)
+    if "MSA+RAXML" in pipes:
+        grid_raxml = get_grid("MSA+RAXML")
+        if "MSA+NJ" in pipes:
+            delta = grid_nj - grid_raxml
+            _plot_heatmap(delta, "Reconstruction Engine: MSA+NJ vs MSA+RAXML\n(ΔnRF = MSA+NJ - MSA+RAXML)",
+                          r"$\Delta nRF$ (>0: RAxML wins, <0: NJ wins)", os.path.join(comp_dir, "comparison_raxml_vs_nj.png"))
+        if "PWA+NJ" in pipes:
+            delta = grid_pwa - grid_raxml
+            _plot_heatmap(delta, "Pipeline Comparison: PWA+NJ vs MSA+RAXML\n(ΔnRF = PWA+NJ - MSA+RAXML)",
+                          r"$\Delta nRF$ (>0: RAxML wins, <0: PWA wins)", os.path.join(comp_dir, "comparison_pwa_vs_raxml.png"))
+        if "MSA+ML" in pipes:
+            delta = grid_ml - grid_raxml
+            _plot_heatmap(delta, "ML Search Engine: MSA+ML (IQ-TREE) vs MSA+RAXML (RAxML -f d)\n(ΔnRF = IQ-TREE - RAxML)",
+                          r"$\Delta nRF$ (>0: RAxML wins, <0: IQ-TREE wins)", os.path.join(comp_dir, "comparison_iqtree_vs_raxml.png"))
+        if "GS" in pipes:
+            delta = grid_raxml - grid_gs
+            _plot_heatmap(delta, "Regime Map: MSA+RAXML vs GS (Graph Splitting)\n(ΔnRF = MSA+RAXML - GS)",
+                          r"$\Delta nRF$ (>0: GS wins, <0: RAxML wins)", os.path.join(comp_dir, "comparison_raxml_vs_gs.png"))
+        if "TRUE_MSA+RAXML" in pipes:
+            grid_true_raxml = get_grid("TRUE_MSA+RAXML")
+            delta = grid_raxml - grid_true_raxml
+            _plot_heatmap(delta, "Alignment Error Penalty (RAxML): MSA+RAXML vs TRUE_MSA+RAXML\n(ΔnRF = MSA+RAXML - TRUE_MSA+RAXML)",
+                          r"$\Delta nRF$ (>0: Alignment Error Degraded Tree)", os.path.join(comp_dir, "comparison_alignment_loss_raxml.png"))
+
+
     # -------------------------------------------------------------
     # 3. True Patristic Distance Matrix Benchmark Comparisons
     # -------------------------------------------------------------
@@ -307,8 +335,8 @@ def generate_boxplots(df, outdir):
     
     # Preferred ordering of known pipelines
     preferred_order = [
-        "PWA+NJ", "MSA+NJ", "MSA+ML",
-        "TRUE_PWA+NJ", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_DIST+NJ",
+        "PWA+NJ", "MSA+NJ", "MSA+ML", "MSA+RAXML", "GS", "MSA+BI",
+        "TRUE_PWA+NJ", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_MSA+RAXML", "TRUE_MSA+BI", "TRUE_DIST+NJ",
         "PWA+FastME", "MSA+FastME", "PWA+FastME_SPR", "MSA+FastME_LG_G"
     ]
     present_pipes = list(df["pipeline"].unique())
@@ -387,6 +415,154 @@ def generate_summary_table(df, outdir):
     out_csv = os.path.join(outdir, "summary_statistics.csv")
     summary.to_csv(out_csv, index=False)
     print(f"Generated: {out_csv}")
+
+
+# ==========================================
+# 1.5 Sequence Similarity Score (SSS) Benchmark Analysis
+# ==========================================
+
+def generate_sss_analysis(df, outdir):
+    """
+    Performs Sequence Similarity Score (SSS w_bar) benchmark analysis matching Matsui & Iwasaki (2020) Fig. 3a:
+    1. nrf_vs_sss_curves.png: LOWESS smoothed curves of topological error (nRF) & accuracy (1-nRF) vs SSS.
+    2. sss_distribution_by_distance.png: Distribution of SSS across distances, highlighting extreme breakdown rates.
+    3. sss_breakdown_report.csv: Stratified performance metrics across SSS regimes (<=0.03, 0.03-0.06, 0.06-0.15, >=0.15).
+    """
+    if "sss_mean" not in df.columns or df["sss_mean"].dropna().empty:
+        print("Note: sss_mean column not present or empty in dataframe. Skipping SSS analysis.")
+        return
+
+    # 1. Fig 3a Replication: nRF & Accuracy vs SSS
+    preferred_order = [
+        "PWA+NJ", "MSA+NJ", "MSA+ML", "MSA+RAXML", "GS", "MSA+BI",
+        "TRUE_PWA+NJ", "TRUE_MSA+NJ", "TRUE_MSA+ML", "TRUE_MSA+RAXML", "TRUE_MSA+BI", "TRUE_DIST+NJ"
+    ]
+    pipes = [p for p in preferred_order if p in df["pipeline"].unique()] + [p for p in df["pipeline"].unique() if p not in preferred_order]
+
+    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(16, 7), sharex=True)
+
+    for pipe in pipes:
+        sub = df[(df["pipeline"] == pipe) & df["sss_mean"].notna() & df["nrf_distance"].notna()].copy()
+        if len(sub) < 3:
+            continue
+        sub = sub.sort_values("sss_mean")
+        x = sub["sss_mean"].values
+        y_err = sub["nrf_distance"].values
+        y_acc = 1.0 - y_err
+
+        color = PIPELINE_COLORS.get(pipe, "#333333")
+
+        # Plot LOWESS smooth curve if statsmodels is available
+        plotted_smooth = False
+        try:
+            from statsmodels.nonparametric.smoothers_lowess import lowess
+            frac_param = 0.4 if len(x) > 20 else 0.6
+            sm_err = lowess(y_err, x, frac=frac_param, it=3)
+            sm_acc = lowess(y_acc, x, frac=frac_param, it=3)
+            ax1.plot(sm_err[:, 0], sm_err[:, 1], color=color, linewidth=2.5, label=pipe)
+            ax2.plot(sm_acc[:, 0], sm_acc[:, 1], color=color, linewidth=2.5, label=pipe)
+            plotted_smooth = True
+        except Exception:
+            pass
+
+        if not plotted_smooth:
+            # Fallback to rolling mean
+            sub["smooth_err"] = sub["nrf_distance"].rolling(window=max(3, len(sub)//10), min_periods=1).mean()
+            sub["smooth_acc"] = (1.0 - sub["nrf_distance"]).rolling(window=max(3, len(sub)//10), min_periods=1).mean()
+            ax1.plot(sub["sss_mean"], sub["smooth_err"], color=color, linewidth=2.5, label=pipe)
+            ax2.plot(sub["sss_mean"], sub["smooth_acc"], color=color, linewidth=2.5, label=pipe)
+
+        # Plot semitransparent scatter points
+        ax1.scatter(x, y_err, color=color, alpha=0.10, s=14, edgecolors="none")
+        ax2.scatter(x, y_acc, color=color, alpha=0.10, s=14, edgecolors="none")
+
+    # Threshold annotations
+    for ax, title, ylabel in [
+        (ax1, "Topological Error (nRF) vs Sequence Similarity Score (SSS)", "Normalized RF Distance (Lower is Better)"),
+        (ax2, "Topological Accuracy (1 - nRF) vs Sequence Similarity Score (SSS)\n[Matsui & Iwasaki (2020) Fig. 3a Replication]", "Correct Topology Ratio (1 - nRF, Higher is Better)")
+    ]:
+        ax.axvline(0.06, color="#d62728", linestyle="--", linewidth=1.5, alpha=0.85, label=r"Crossover Threshold ($SSS = 0.06$)")
+        ax.axvline(0.03, color="#8b0000", linestyle=":", linewidth=1.8, alpha=0.85, label=r"Extreme Breakdown ($SSS \leq 0.03$)")
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=12)
+        ax.set_xlabel(r"Average Sequence Similarity Score ($\bar{w}$)", fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_xlim(-0.01, min(0.65, max(0.2, df["sss_mean"].max() + 0.02)))
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(fontsize=9, loc="best", framealpha=0.9)
+
+    plt.tight_layout()
+    plot_path1 = os.path.join(outdir, "nrf_vs_sss_curves.png")
+    plt.savefig(plot_path1, dpi=300)
+    plt.close()
+    print(f"Generated: {plot_path1}")
+
+    # 2. SSS Distribution across Distances
+    plt.figure(figsize=(11, 6))
+    rep_level = df.drop_duplicates(subset=["distance", "length", "replicate"]).copy()
+    distances = sorted(rep_level["distance"].unique())
+
+    ax = sns.boxplot(data=rep_level, x="distance", y="sss_mean", color="#9ecae1", width=0.5, fliersize=2)
+    sns.stripplot(data=rep_level, x="distance", y="sss_mean", color="#3182bd", alpha=0.35, size=4, jitter=0.2, ax=ax)
+
+    ax.axhline(0.06, color="#d62728", linestyle="--", linewidth=1.5, label=r"syz049 Threshold ($SSS = 0.06$)")
+    ax.axhline(0.03, color="#8b0000", linestyle=":", linewidth=1.8, label=r"Extreme Breakdown ($SSS \leq 0.03$)")
+
+    # Annotate fraction below 0.06 and 0.03 per distance
+    for idx, d in enumerate(distances):
+        sub_d = rep_level[rep_level["distance"] == d]["sss_mean"]
+        n_tot = len(sub_d)
+        if n_tot > 0:
+            n_sub06 = np.count_nonzero(sub_d < 0.06)
+            n_sub03 = np.count_nonzero(sub_d <= 0.03)
+            pct06 = (n_sub06 / n_tot) * 100.0
+            pct03 = (n_sub03 / n_tot) * 100.0
+            ax.text(idx, -0.015, f"<0.06: {pct06:.1f}%\n≤0.03: {pct03:.1f}%",
+                    ha="center", va="top", fontsize=8, color="#8b0000", fontweight="bold")
+
+    ax.set_title("Distribution of Sequence Similarity Score (SSS) across Evolutionary Distances", fontsize=13, fontweight="bold", pad=15)
+    ax.set_xlabel("Evolutionary Distance D (substitutions/site)", fontsize=11)
+    ax.set_ylabel(r"Average Sequence Similarity Score ($\bar{w}$)", fontsize=11)
+    ax.set_ylim(-0.06, max(0.5, rep_level["sss_mean"].max() + 0.05))
+    ax.legend(loc="upper right", fontsize=9)
+    plt.tight_layout()
+    plot_path2 = os.path.join(outdir, "sss_distribution_by_distance.png")
+    plt.savefig(plot_path2, dpi=300)
+    plt.close()
+    print(f"Generated: {plot_path2}")
+
+    # 3. Stratified SSS Regime Report Table
+    def categorize_sss(val):
+        if pd.isna(val):
+            return "Unknown"
+        if val <= 0.03:
+            return "1. Extreme (SSS <= 0.03)"
+        elif val < 0.06:
+            return "2. Severe (0.03 < SSS < 0.06)"
+        elif val < 0.15:
+            return "3. Moderate (0.06 <= SSS < 0.15)"
+        else:
+            return "4. Mild (SSS >= 0.15)"
+
+    df_strat = df.copy()
+    df_strat["sss_regime"] = df_strat["sss_mean"].apply(categorize_sss)
+    report_rows = []
+    for (regime, pipe), grp in df_strat.groupby(["sss_regime", "pipeline"]):
+        report_rows.append({
+            "sss_regime": regime,
+            "pipeline": pipe,
+            "replicate_count": len(grp),
+            "mean_nrf": round(float(grp["nrf_distance"].mean()), 4),
+            "std_nrf": round(float(grp["nrf_distance"].std()), 4),
+            "median_nrf": round(float(grp["nrf_distance"].median()), 4),
+            "accuracy_mean": round(1.0 - float(grp["nrf_distance"].mean()), 4),
+            "mean_sss": round(float(grp["sss_mean"].mean()), 4),
+        })
+    if report_rows:
+        rep_df = pd.DataFrame(report_rows).sort_values(["sss_regime", "mean_nrf"])
+        csv_path = os.path.join(outdir, "sss_breakdown_report.csv")
+        rep_df.to_csv(csv_path, index=False)
+        print(f"Generated: {csv_path}")
+
 
 # ==========================================
 # 2. Sequence Length & Retention Analysis
@@ -1239,12 +1415,24 @@ def main():
 
     if csv_file and os.path.exists(csv_file) and os.path.getsize(csv_file) > 0:
         df = pd.read_csv(csv_file)
+        # Attempt to auto-merge SSS summary if sss_mean is not in df
+        if "sss_mean" not in df.columns:
+            sss_cand = os.path.join(args.outdir, "sss_summary.csv")
+            if not os.path.exists(sss_cand):
+                sss_cand = os.path.join(os.path.dirname(csv_file), "sss_summary.csv")
+            if os.path.exists(sss_cand):
+                df_sss = pd.read_csv(sss_cand).drop_duplicates(subset=["distance", "length", "replicate"])
+                df = pd.merge(df, df_sss, on=["distance", "length", "replicate"], how="left")
+                print(f"Merged SSS data from '{sss_cand}' into benchmark dataframe.")
+
         if not df.empty and "nrf_distance" in df.columns:
             print(f"Generating phylogenetic benchmark reports from '{csv_file}' ({len(df)} records)...")
             generate_regime_map(df, args.outdir)
             generate_method_comparisons(df, args.outdir)
             generate_boxplots(df, args.outdir)
             generate_summary_table(df, args.outdir)
+            if "sss_mean" in df.columns and df["sss_mean"].notna().any():
+                generate_sss_analysis(df, args.outdir)
 
     # 2. Sequence Length Analysis
     scan_source = args.repdir or (rep_dst if os.path.exists(rep_dst) else args.workdir)

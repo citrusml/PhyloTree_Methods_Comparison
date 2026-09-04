@@ -33,12 +33,15 @@ include { RUN_PWA_NJ }       from './modules/run_pwa_nj'
 include { RUN_MAFFT }        from './modules/run_mafft'
 include { RUN_MSA_NJ }       from './modules/run_msa_nj'
 include { RUN_MSA_ML }       from './modules/run_msa_ml'
+include { RUN_MSA_RAXML }    from './modules/run_msa_raxml'
 include { RUN_MSA_BI }       from './modules/run_msa_bi'
 include { RUN_GS }           from './modules/run_gs'
 include { RUN_TRUE_PWA_NJ }  from './modules/run_true_pwa_nj'
 include { RUN_TRUE_MSA_NJ }  from './modules/run_true_msa_nj'
 include { RUN_TRUE_MSA_ML }  from './modules/run_true_msa_ml'
+include { RUN_TRUE_MSA_RAXML } from './modules/run_true_msa_raxml'
 include { RUN_TRUE_MSA_BI }  from './modules/run_true_msa_bi'
+include { CALCULATE_SSS }    from './modules/calculate_sss'
 include { COLLECT_AND_PLOT } from './modules/collect_and_plot'
 
 // 型安全なブール値パース関数（CLI文字列 "false"/"true" と Boolean 型の双方に対応）
@@ -74,6 +77,7 @@ workflow {
     def do_pwa_nj      = asBool(params.containsKey('run_pwa_nj') ? params.run_pwa_nj : true, true)
     def do_msa_nj      = asBool(params.containsKey('run_msa_nj') ? params.run_msa_nj : true, true)
     def do_msa_ml      = asBool(params.containsKey('run_msa_ml') ? params.run_msa_ml : true, true)
+    def do_msa_raxml   = asBool(params.containsKey('run_msa_raxml') ? params.run_msa_raxml : false, false)
     // run_msa_bi と run_bi（エイリアス）のどちらかが true なら有効（OR ロジック）
     def do_msa_bi      = asBool(params.containsKey('run_msa_bi') ? params.run_msa_bi : false, false) ||
                          asBool(params.containsKey('run_bi')     ? params.run_bi     : false, false)
@@ -82,11 +86,19 @@ workflow {
     def master_tmsa    = asBool(params.containsKey('run_true_msa') ? params.run_true_msa : true, true)
     def do_true_msa_nj = master_tmsa && asBool(params.containsKey('run_true_msa_nj') ? params.run_true_msa_nj : true, true)
     def do_true_msa_ml = master_tmsa && asBool(params.containsKey('run_true_msa_ml') ? params.run_true_msa_ml : true, true)
+    def do_true_msa_raxml = master_tmsa && asBool(params.containsKey('run_true_msa_raxml') ? params.run_true_msa_raxml : false, false)
     // run_true_msa_bi と run_true_bi（エイリアス）のどちらかが true なら有効（OR ロジック）
     def do_true_msa_bi = asBool(params.containsKey('run_true_msa_bi') ? params.run_true_msa_bi : false, false) ||
                          asBool(params.containsKey('run_true_bi')     ? params.run_true_bi     : false, false)
+    def do_calc_sss    = asBool(params.containsKey('calc_sss') ? params.calc_sss : true, true)
 
     ch_all_csvs = Channel.empty()
+
+    // 0. SSS (Sequence Similarity Score) 計算 (Matsui & Iwasaki 2020 準拠)
+    if (do_calc_sss) {
+        CALCULATE_SSS(ch_sim_data)
+        ch_all_csvs = ch_all_csvs.mix(CALCULATE_SSS.out.csv)
+    }
 
     // 1. PWA+NJ
     if (do_pwa_nj) {
@@ -95,13 +107,13 @@ workflow {
     }
 
     // 2. MAFFT + MSA系（需要があるときのみ MAFFT を実行）
-    def need_mafft = do_msa_nj || do_msa_ml || do_msa_bi
+    def need_mafft = do_msa_nj || do_msa_ml || do_msa_raxml || do_msa_bi
     if (need_mafft) {
         RUN_MAFFT(ch_sim_data)
         ch_msa_data = RUN_MAFFT.out.msa_data
     }
 
-    // 3. MSA+NJ, MSA+ML, MSA+BI（各々独立した if、ネストなし）
+    // 3. MSA+NJ, MSA+ML, MSA+RAXML, MSA+BI（各々独立した if、ネストなし）
     if (need_mafft && do_msa_nj) {
         RUN_MSA_NJ(RUN_MAFFT.out.msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MSA_NJ.out.csv)
@@ -109,6 +121,10 @@ workflow {
     if (need_mafft && do_msa_ml) {
         RUN_MSA_ML(RUN_MAFFT.out.msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MSA_ML.out.csv)
+    }
+    if (need_mafft && do_msa_raxml) {
+        RUN_MSA_RAXML(RUN_MAFFT.out.msa_data)
+        ch_all_csvs = ch_all_csvs.mix(RUN_MSA_RAXML.out.csv)
     }
     if (need_mafft && do_msa_bi) {
         RUN_MSA_BI(RUN_MAFFT.out.msa_data)
@@ -133,6 +149,10 @@ workflow {
     if (do_true_msa_ml) {
         RUN_TRUE_MSA_ML(ch_true_msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_TRUE_MSA_ML.out.csv)
+    }
+    if (do_true_msa_raxml) {
+        RUN_TRUE_MSA_RAXML(ch_true_msa_data)
+        ch_all_csvs = ch_all_csvs.mix(RUN_TRUE_MSA_RAXML.out.csv)
     }
     if (do_true_msa_bi) {
         RUN_TRUE_MSA_BI(ch_true_msa_data)
