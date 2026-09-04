@@ -155,3 +155,24 @@
 - 設定ファイル: `next_configs/nextflow_zipfian_indel.config`
 - 実行スクリプト: `run_scripts/run_nextflow_zipfian_indel.sh`（出力先: `results/results_zipfian_indel`）
 - **実験の目的**: 幾何分布 Indel（実験13）では MSA+ML が優位のまま。Zipfian べき乗則 Indel の導入により、MSA アンカーが破壊されて ML が崩壊し、`PWA+NJ` が ML を逆転するかを検証する（論文 Fig. 3a の現象再現）。
+
+### 実験15（論文準拠 系統樹生成モデル: Yule過程＋対数抽出枝長 ベンチマーク）
+- Taxon 数: $N = 32$
+- 進化距離: $D \in [0.1, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]$（計8水準）
+- 配列長: $L \in [300, 500, 1000, 1500]$（計4水準）
+- Replicates: 100
+- 置換モデル: `LG+G4`
+- ガンマ形状母数: $\alpha = 1.0$ (固定)
+- **系統樹生成モデル: 論文準拠モデル (`tree_model = "paper_yule"`)**
+  - トポロジー: 後退 Yule 過程（Backward Yule Process / Coalescent 型ランダム二分岐合流樹）
+  - 枝長サンプリング: 各エッジ長 $l$ を独立に対数分布 $l = 1 - \ln(u \cdot (e - 1) + 1)$（$u \sim \mathrm{Uniform}(0, 1)$）から抽出
+  - 枝長伸縮: 進化距離 $D$ による全体スケーリング（$l_{\text{scaled}} = l \times D$）
+  - 生成スクリプト: `src/tree_generator.py` および `bin/generate_tree.py`
+- Indel 長さ分布: Zipfian べき乗則 (`POW{1.7/50}`) — べき指数 $a=1.7$, 最大 50 残基
+- Indel 発生頻度: 挿入率 = 0.05, 欠失率 = 0.05（置換率に対する相対値）
+- ギャップペナルティ: $\mathrm{Gap\ Open} = 20.0$, $\mathrm{Gap\ Extension} = 2.0$ (PhyPA / Xia 2016 準拠の高ペナルティ)
+- 実行パイプライン: `PWA+NJ`, `MSA+NJ`, `MSA+ML`, `GS`, `TRUE_PWA+NJ`, `TRUE_MSA+NJ`, `TRUE_MSA+ML`
+- 統一Nextflowパイプライン: `main.nf`
+- 設定ファイル: `next_configs/nextflow_paper_tree.config`
+- 実行スクリプト: `run_scripts/run_nextflow_paper_tree.sh`（出力先: `results/results_paper_tree`）
+- **実験の目的**: 誕生死モデル（Birth-Death）では生じにくかった長枝と短枝の極端な不均一性・長枝牽引（LBA）が、論文準拠の Yule＋対数抽出枝長によって自然に導入される。Zipfian Indel と組み合わせることで、論文 Figure 3 で観察された「超低類似度・高Indel域における最尤法（ML）の崩壊と PWA+NJ / GS 法の逆転現象」の完全再現を検証する。
