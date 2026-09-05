@@ -48,6 +48,10 @@ def needleman_wunsch(seq1, seq2, aligner=None, gap_open=10.0, gap_extend=0.5):
     Needleman-Wunsch global alignment using Biopython's C-accelerated PairwiseAligner.
     Returns (aligned_seq1, aligned_seq2).
     """
+    if len(seq1) == 0 or len(seq2) == 0:
+        max_len = max(len(seq1), len(seq2), 1)
+        return "-" * max_len, "-" * max_len
+
     if aligner is None:
         aligner = get_aligner(gap_open=gap_open, gap_extend=gap_extend)
 

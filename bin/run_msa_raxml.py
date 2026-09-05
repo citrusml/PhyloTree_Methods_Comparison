@@ -62,6 +62,8 @@ def find_raxml_binary() -> str:
     """
     py_dir = os.path.dirname(sys.executable)
     candidates = [
+        "raxmlHPC-PTHREADS-AVX2",
+        "raxmlHPC-PTHREADS-SSE3",
         "raxmlHPC-PTHREADS",
         "raxmlHPC-AVX2",
         "raxmlHPC",

@@ -69,26 +69,31 @@ def compute_sss_for_sequences(
     Dict[str, float]
         Dictionary with sss_mean, sss_median, sss_std, sss_min, sss_max, sss_zero_frac.
     """
-    n = len(seqs)
+    total_taxa = len(seqs)
+    total_expected_pairs = total_taxa * (total_taxa - 1) // 2
+
+    # Filter out empty (completely deleted) sequences to prevent ValueError in PairwiseAligner
+    valid_seqs = [s for s in seqs if len(s) > 0]
+    n = len(valid_seqs)
     if n < 2:
         return {
-            "sss_mean": 1.0,
-            "sss_median": 1.0,
+            "sss_mean": 0.0,
+            "sss_median": 0.0,
             "sss_std": 0.0,
-            "sss_min": 1.0,
-            "sss_max": 1.0,
-            "sss_zero_frac": 0.0,
+            "sss_min": 0.0,
+            "sss_max": 0.0,
+            "sss_zero_frac": 1.0,
         }
 
     # Pre-calculate self-scores S(i, i)
-    self_scores = [float(aligner.score(s, s)) for s in seqs]
+    self_scores = [float(aligner.score(s, s)) for s in valid_seqs]
 
     scores: List[float] = []
     for i in range(n):
-        s1 = seqs[i]
+        s1 = valid_seqs[i]
         self_i = self_scores[i]
         for j in range(i + 1, n):
-            s2 = seqs[j]
+            s2 = valid_seqs[j]
             self_j = self_scores[j]
             mean_self = (self_i + self_j) / 2.0
             if mean_self > 0.0:
@@ -97,6 +102,10 @@ def compute_sss_for_sequences(
                 scores.append(min(1.0, w_ij))
             else:
                 scores.append(0.0)
+
+    # If any sequences were completely deleted (empty), pad with 0.0 for those pairs
+    if len(scores) < total_expected_pairs:
+        scores.extend([0.0] * (total_expected_pairs - len(scores)))
 
     arr = np.array(scores, dtype=np.float64)
     return {
