@@ -8,7 +8,10 @@ Matsui & Iwasaki (2020, Systematic Biology) simulation specifications:
 2. Branch Lengths: Sampled from logarithmic distribution l = 1 - ln(u * (e - 1) + 1) and scaled by D.
 3. Taxa: Terminal leaves named T1, T2, ..., TN for AliSim compatibility.
 
-Completely standalone with zero external dependencies (uses standard library only).
+If you don't use backward Yule's model, you can run only with Alism.
+However, you use this scripts, wanting to execute Yule's model.
+
+check 20260908
 """
 
 from typing import List, Optional
@@ -125,9 +128,16 @@ def generate_paper_yule_tree(
     seed: Optional[int] = None,
     rate_sd: float = 0.0,
     lba_ratio: float = 1.0,
+    min_length: float = 1e-6,
 ) -> str:
     """
-    Generates a phylogenetic tree based on the backward Yule process and paper branch lengths.
+    Generates a phylogenetic tree based on the backward Yule process matching
+    Matsui & Iwasaki (2020, Systematic Biology) and BioPerl Bio::Tree::RandomFactory.
+
+    In the BioPerl rand_yule_c_tree model, N - 1 coalescence times are sampled
+    from the distribution t = 1 - ln(u * (e - 1) + 1), scaled by D, and sorted.
+    At each coalescence event, sister lineages coalesce at the shared event time,
+    maintaining evolutionary rate balance between sister groups.
 
     Parameters
     ----------
@@ -141,6 +151,8 @@ def generate_paper_yule_tree(
         Rate heterogeneity standard deviation across branches (dimensionless).
     lba_ratio : float, default=1.0
         Long-branch attraction ratio (dimensionless, b/a >= 1.0).
+    min_length : float, default=1e-6
+        Minimum allowable branch length (substitutions per site).
 
     Returns
     -------
@@ -159,20 +171,36 @@ def generate_paper_yule_tree(
 
     rng = random.Random(seed)
 
-    # Initialize leaves: T1, T2, ..., TN
+    # 1. Sample N - 1 coalescence times from Matsui & Iwasaki (2020) / BioPerl formula
+    #    t = 1 - ln(u * (e - 1) + 1)
+    times: List[float] = []
+    for _ in range(taxa - 1):
+        u = rng.random()
+        base_t = 1.0 - math.log(u * (math.e - 1.0) + 1.0)
+        times.append(base_t * scale)
+    times.sort()
+
+    # 2. Initialize leaves: T1, T2, ..., TN
     nodes: List[TreeNode] = [TreeNode(name=f"T{i + 1}") for i in range(taxa)]
 
-    # Backward Yule process: randomly pair nodes until only root remains
+    # 3. Backward Yule coalescence: pair lineages at sorted coalescence times
     while len(nodes) > 1:
-        # Pick 2 distinct nodes uniformly at random without replacement
+        # Pop next coalescence event time
+        t = times.pop(0)
+
+        # Pick 2 distinct lineages uniformly at random
         idx1, idx2 = sorted(rng.sample(range(len(nodes)), 2), reverse=True)
-        # Pop in descending order so indices remain valid
         v_node = nodes.pop(idx1)
         u_node = nodes.pop(idx2)
 
-        # Sample independent branch lengths
-        lu = sample_paper_branch_length(rng, scale=scale, rate_sd=rate_sd)
-        lv = sample_paper_branch_length(rng, scale=scale, rate_sd=rate_sd)
+        # Sister lineages share the event time as base branch length
+        lu = t
+        lv = t
+
+        # Optional rate heterogeneity (Gaussian perturbation)
+        if rate_sd > 0.0:
+            lu = max(min_length, lu + rng.gauss(0.0, rate_sd * scale))
+            lv = max(min_length, lv + rng.gauss(0.0, rate_sd * scale))
 
         # Apply LBA scaling if requested for specific taxa (T1 and TN)
         if lba_ratio > 1.0:
@@ -181,10 +209,10 @@ def generate_paper_yule_tree(
             if v_node.name in ("T1", f"T{taxa}"):
                 lv *= lba_ratio
 
-        u_node.length = lu
-        v_node.length = lv
+        u_node.length = max(min_length, lu)
+        v_node.length = max(min_length, lv)
 
-        # Create parent internal node
+        # Create parent internal node and return to active lineage pool
         parent = TreeNode(left=u_node, right=v_node)
         nodes.append(parent)
 

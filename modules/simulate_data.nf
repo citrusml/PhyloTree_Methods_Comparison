@@ -25,7 +25,7 @@ process SIMULATE_DATA {
     fi
     for rep in \$(seq ${rep_start} ${rep_end}); do
         sim_ok=false
-        for attempt in \$(seq 0 19); do
+        for attempt in \$(seq 0 4); do
             cur_seed=\$((rep + attempt * 100000))
             if [ "${is_paper_yule}" = "true" ]; then
                 python3 ${moduleDir}/../bin/generate_tree.py \\
@@ -47,8 +47,29 @@ process SIMULATE_DATA {
                     -seed \${cur_seed} \\
                     --redo > alisim_\${rep}.log 2>&1; then
                     if [ -f "sim_\${rep}.unaligned.fa" ] && [ -f "sim_\${rep}.fa" ]; then
-                        sim_ok=true
-                        break
+                        if python3 -c '
+import sys
+fname = sys.argv[1]
+taxa = int(sys.argv[2])
+count, valid, seq_len, in_header = 0, True, 0, False
+with open(fname) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            if in_header and seq_len == 0:
+                valid = False; break
+            count += 1; in_header = True; seq_len = 0
+        else:
+            seq_len += len(line)
+    if in_header and seq_len == 0:
+        valid = False
+sys.exit(0 if (valid and count == taxa) else 1)
+' "sim_\${rep}.unaligned.fa" "${params.taxa}"; then
+                            sim_ok=true
+                            break
+                        fi
                     fi
                 fi
             else
@@ -63,20 +84,41 @@ process SIMULATE_DATA {
                     -seed \${cur_seed} \\
                     --redo > alisim_\${rep}.log 2>&1; then
                     if [ -f "sim_\${rep}.unaligned.fa" ] && [ -f "sim_\${rep}.fa" ]; then
-                        if [ -f sim_\${rep}.treefile ]; then
-                            mv sim_\${rep}.treefile true_tree_\${rep}.nwk
-                        elif [ -f sim_\${rep}.tree ]; then
-                            mv sim_\${rep}.tree true_tree_\${rep}.nwk
+                        if python3 -c '
+import sys
+fname = sys.argv[1]
+taxa = int(sys.argv[2])
+count, valid, seq_len, in_header = 0, True, 0, False
+with open(fname) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            if in_header and seq_len == 0:
+                valid = False; break
+            count += 1; in_header = True; seq_len = 0
+        else:
+            seq_len += len(line)
+    if in_header and seq_len == 0:
+        valid = False
+sys.exit(0 if (valid and count == taxa) else 1)
+' "sim_\${rep}.unaligned.fa" "${params.taxa}"; then
+                            if [ -f sim_\${rep}.treefile ]; then
+                                mv sim_\${rep}.treefile true_tree_\${rep}.nwk
+                            elif [ -f sim_\${rep}.tree ]; then
+                                mv sim_\${rep}.tree true_tree_\${rep}.nwk
+                            fi
+                            sim_ok=true
+                            break
                         fi
-                        sim_ok=true
-                        break
                     fi
                 fi
             fi
         done
 
         if [ "\${sim_ok}" != "true" ]; then
-            echo "Error: AliSim simulation failed for replicate \${rep} after 20 attempts." >&2
+            echo "Error: AliSim simulation failed for replicate \${rep} after 5 attempts." >&2
             if [ -f "alisim_\${rep}.log" ]; then
                 cat alisim_\${rep}.log >&2
             fi
