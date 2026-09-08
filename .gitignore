@@ -4,7 +4,6 @@
 .DS_Store
 /bin/__pycache__
 **/__pycache__
-/memo
 /logs/*
 test/
 scratch
@@ -14,7 +13,6 @@ status.md
 syz049*
 research1
 bin/gs2
-dataset
 work/
 .nextflow*
 .pytest_cache/
