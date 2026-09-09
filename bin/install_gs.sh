@@ -45,6 +45,9 @@ EOF
 # Detect OS
 OS="$(uname -s)"
 ENV_LIB="${CONDA_PREFIX:-${HOME}/.micromamba/envs/phylomethod_env}/lib"
+if [ -f "${ENV_LIB}/libopenblas.0.dylib" ] && [ ! -f "${ENV_LIB}/libopenblas.dylib" ]; then
+    ln -sf "${ENV_LIB}/libopenblas.0.dylib" "${ENV_LIB}/libopenblas.dylib" 2>/dev/null || true
+fi
 
 if [ "${OS}" = "Darwin" ]; then
     clang++ -O3 -std=c++14 -march=native -fno-exceptions -funroll-loops -Wall \

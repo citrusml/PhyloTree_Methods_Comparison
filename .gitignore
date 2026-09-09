@@ -17,3 +17,5 @@ work/
 .nextflow*
 .pytest_cache/
 page8*
+dataset/data/
+dataset/results
