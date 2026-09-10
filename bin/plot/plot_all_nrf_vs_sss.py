@@ -71,6 +71,7 @@ EXPERIMENT_FILES = [
     ("results_simple", "benchmark_high_dist_summary.csv", "length"),
     ("results_taxon", "benchmark_taxon_summary.csv", "num_taxa"),
     ("results_true_pwa", "benchmark_true_pwa_summary.csv", "length"),
+    ("results_paper_tree2", "benchmark_summary.csv", "distance"),
 ]
 
 
@@ -183,6 +184,7 @@ def plot_condition_stratified(df: pd.DataFrame, strat_col: str, out_path: Path, 
         "alpha": r"Gamma Shape $\alpha = {}$",
         "num_taxa": "Taxon Count N = {}",
         "ics_prop": "ICS Proportion = {}",
+        "distance": r"Max Tree Distance $D = {}$",
     }
     label_fmt = strat_label_map.get(strat_col, f"{strat_col} = {{}}")
 
@@ -262,12 +264,14 @@ def generate_sss_breakdown_table(df: pd.DataFrame, out_path: Path):
         rep_df.to_csv(out_path, index=False)
 
 
-def process_all_plots():
+def process_all_plots(target_exp: Optional[str] = None):
     print("=" * 70)
-    print("Generating SSS-based Publication Figures across all 14 Experiments...")
+    print("Generating SSS-based Publication Figures...")
     print("=" * 70)
 
     for exp_dir_name, csv_name, strat_col in EXPERIMENT_FILES:
+        if target_exp and exp_dir_name != target_exp:
+            continue
         exp_dir = RESULTS_DIR / exp_dir_name
         csv_path = exp_dir / csv_name
         if not csv_path.exists():
@@ -311,4 +315,7 @@ def process_all_plots():
 
 
 if __name__ == "__main__":
-    process_all_plots()
+    parser = argparse.ArgumentParser(description="Generate SSS plots for phylogenetic benchmark.")
+    parser.add_argument("--exp", type=str, default=None, help="Specific experiment directory to process (e.g. results_paper_tree2)")
+    args = parser.parse_args()
+    process_all_plots(target_exp=args.exp)
