@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 process COLLECT_AND_PLOT_RESEARCH2 {
     tag "summary"
 
-    publishDir "${projectDir}/research2/results", mode: 'copy'
+    publishDir "${moduleDir}/../results", mode: 'copy'
 
     input:
     path(csv_files)
@@ -35,7 +35,7 @@ print(f"Combined {len(files)} CSVs into all_properties_research2.csv ({len(all_d
 '
 
     # 2. Run plotting and table generation
-    python3 ${projectDir}/research2/scripts/plot_research2_comparison.py \\
+    python3 ${moduleDir}/../scripts/plot_research2_comparison.py \\
         --csv all_properties_research2.csv \\
         --outdir plots
 

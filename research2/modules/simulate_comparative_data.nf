@@ -33,10 +33,10 @@ process SIMULATE_COMPARATIVE_DATA {
 
     """
     if [ "${simulator}" = "indelible" ]; then
-        INDELIBLE_BIN=\$(which indelible 2>/dev/null || echo "${projectDir}/bin/indelible")
+        INDELIBLE_BIN=\$(which indelible 2>/dev/null || echo "${moduleDir}/../../bin/indelible")
         if [ ! -x "\${INDELIBLE_BIN}" ]; then
-            if [ -f "${projectDir}/bin/install_indelible.sh" ]; then
-                bash "${projectDir}/bin/install_indelible.sh" >&2
+            if [ -f "${moduleDir}/../../bin/install_indelible.sh" ]; then
+                bash "${moduleDir}/../../bin/install_indelible.sh" >&2
             fi
         fi
         if [ ! -x "\${INDELIBLE_BIN}" ]; then
@@ -44,7 +44,7 @@ process SIMULATE_COMPARATIVE_DATA {
             exit 1
         fi
     else
-        IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${projectDir}/bin/iqtree2")
+        IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${moduleDir}/../../bin/iqtree2")
         if [ -z "\$IQTREE_BIN" ] || [ ! -x "\$IQTREE_BIN" ]; then
             echo "Error: IQ-TREE / AliSim not found at \${IQTREE_BIN}" >&2
             exit 1
@@ -56,7 +56,7 @@ process SIMULATE_COMPARATIVE_DATA {
         run_seed=\$(( ${cur_seed} + attempt * 10000 ))
 
         # 1. 系統樹生成 (paper_yule)
-        python3 ${projectDir}/bin/generate_tree.py \\
+        python3 ${moduleDir}/../../bin/generate_tree.py \\
             --taxa ${params.taxa} \\
             --scale ${dist} \\
             --seed \${run_seed} \\

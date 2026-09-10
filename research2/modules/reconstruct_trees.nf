@@ -11,7 +11,7 @@ process RUN_PWA_NJ {
 
     script:
     """
-    python3 ${projectDir}/bin/run_pwa_nj.py \\
+    python3 ${moduleDir}/../../bin/run_pwa_nj.py \\
         --fasta ${seqs} \\
         --gap_open ${params.gap_open} \\
         --gap_extend ${params.gap_extend} \\
@@ -48,7 +48,7 @@ process RUN_MSA_NJ {
 
     script:
     """
-    python3 ${projectDir}/bin/run_msa_nj.py \\
+    python3 ${moduleDir}/../../bin/run_msa_nj.py \\
         --msa ${mafft_msa} \\
         --dist_model ${params.dist_model} \\
         --tool ${params.nj_tool} \\
@@ -67,7 +67,7 @@ process RUN_MSA_ML {
 
     script:
     """
-    IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${projectDir}/bin/iqtree2")
+    IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${moduleDir}/../../bin/iqtree2")
     \${IQTREE_BIN} -s ${mafft_msa} -m ${params.model} --prefix iqtree_msa_ml -T 2 --quiet -redo
     mv iqtree_msa_ml.treefile tree_msa_ml.nwk
     """
@@ -84,7 +84,7 @@ process RUN_TRUE_MSA_NJ {
 
     script:
     """
-    python3 ${projectDir}/bin/run_msa_nj.py \\
+    python3 ${moduleDir}/../../bin/run_msa_nj.py \\
         --msa ${true_msa} \\
         --dist_model ${params.dist_model} \\
         --tool ${params.nj_tool} \\
@@ -103,7 +103,7 @@ process RUN_TRUE_MSA_ML {
 
     script:
     """
-    IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${projectDir}/bin/iqtree2")
+    IQTREE_BIN=\$(which iqtree2 2>/dev/null || which iqtree 2>/dev/null || echo "${moduleDir}/../../bin/iqtree2")
     \${IQTREE_BIN} -s ${true_msa} -m ${params.model} --prefix iqtree_true_ml -T 2 --quiet -redo
     mv iqtree_true_ml.treefile tree_true_msa_ml.nwk
     """
@@ -120,7 +120,7 @@ process RUN_SSS {
 
     script:
     """
-    python3 ${projectDir}/bin/calculate_sss.py \\
+    python3 ${moduleDir}/../../bin/calculate_sss.py \\
         --fasta ${seqs} \\
         --distance ${dist} \\
         --length ${len} \\

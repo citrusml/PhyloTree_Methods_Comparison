@@ -20,7 +20,7 @@ process CALCULATE_PROPERTIES {
 
     script:
     """
-    python3 ${projectDir}/research2/scripts/calculate_msa_properties.py \\
+    python3 ${moduleDir}/../scripts/calculate_msa_properties.py \\
         --cond_name ${cond_name} \\
         --simulator ${simulator} \\
         --ins_rate ${ins_rate} \\

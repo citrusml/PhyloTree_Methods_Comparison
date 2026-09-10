@@ -74,9 +74,9 @@ EXPERIMENT_FILES = [
 ]
 
 
-def compute_lowess_curve(x: np.ndarray, y: np.ndarray, frac: float = 0.3) -> Tuple[np.ndarray, np.ndarray]:
-    """Fits LOWESS smoother over x and y."""
-    valid = np.isfinite(x) & np.isfinite(y)
+def compute_lowess_curve(x: np.ndarray, y: np.ndarray, frac: float = 0.3, log_x: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """Fits LOWESS smoother over x and y, properly handling log scale and MAD=0 robust collapse edge cases."""
+    valid = np.isfinite(x) & np.isfinite(y) & (x > 0 if log_x else True)
     x_v, y_v = x[valid], y[valid]
     if len(x_v) < 5:
         return np.array([]), np.array([])
@@ -84,8 +84,19 @@ def compute_lowess_curve(x: np.ndarray, y: np.ndarray, frac: float = 0.3) -> Tup
     x_s, y_s = x_v[sorted_idx], y_v[sorted_idx]
     if len(x_s) < 10:
         return x_s, y_s
-    lw = lowess(y_s, x_s, frac=frac, return_sorted=True)
-    return lw[:, 0], lw[:, 1]
+
+    # Perform smoothing in log10 space for x if log scale is requested
+    x_in = np.log10(x_s) if log_x else x_s
+
+    # Attempt standard robust lowess (it=3). If residuals collapse (MAD=0 e.g. many y=0)
+    # causing lowess to output raw jagged points, fallback to it=0 (local linear regression).
+    lw = lowess(y_s, x_in, frac=frac, it=3, return_sorted=True)
+    if np.allclose(lw[:, 1], y_s) or np.max(np.abs(np.diff(lw[:, 1]))) > 0.08:
+        lw = lowess(y_s, x_in, frac=frac, it=0, return_sorted=True)
+
+    out_x = np.power(10.0, lw[:, 0]) if log_x else lw[:, 0]
+    out_y = lw[:, 1]
+    return out_x, out_y
 
 
 def plot_main_nrf_vs_sss(df: pd.DataFrame, out_path: Path, exp_title: str, log_x: bool = True):
@@ -113,8 +124,8 @@ def plot_main_nrf_vs_sss(df: pd.DataFrame, out_path: Path, exp_title: str, log_x
         ax2.scatter(x, y_acc, color=cfg["color"], alpha=alpha_val, s=12, edgecolors="none", zorder=cfg["zorder"] - 1)
 
         # LOWESS fit
-        lx_nrf, ly_nrf = compute_lowess_curve(x, y_nrf, frac=0.3)
-        lx_acc, ly_acc = compute_lowess_curve(x, y_acc, frac=0.3)
+        lx_nrf, ly_nrf = compute_lowess_curve(x, y_nrf, frac=0.3, log_x=log_x)
+        lx_acc, ly_acc = compute_lowess_curve(x, y_acc, frac=0.3, log_x=log_x)
 
         if len(lx_nrf) > 0:
             ax1.plot(lx_nrf, ly_nrf, color=cfg["color"], linestyle=cfg["linestyle"], linewidth=cfg["linewidth"],
