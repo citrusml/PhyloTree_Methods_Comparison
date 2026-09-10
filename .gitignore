@@ -19,3 +19,7 @@ work/
 page8*
 dataset/data/
 dataset/results
+bin/indelible
+bin/iqtree
+bin/iqtree2
+bin/mafft

@@ -2,7 +2,7 @@
 """
 Comprehensive SSS Full Calculation Script: compute_all_results_sss.py
 Recalculates Sequence Similarity Score (SSS) strictly using MMseqs2 matching Matsui & Iwasaki (2020)
-and gs2 definition across all 14 benchmark result directories under results/.
+and gs2 definition across all benchmark result directories under results/.
 
 Key Execution Features:
 1. Replicate-level Full Simulation & Calculation:
@@ -41,8 +41,8 @@ MODELS_DIR = PROJECT_ROOT / "models"
 ICS_MODEL_PATH = MODELS_DIR / "ics_model.nex"
 CACHE_FILE = RESULTS_DIR / "sss_replicate_cache.csv"
 
-IQTREE_BIN = "/opt/homebrew/Cellar/micromamba/2.8.1/envs/phylomethod_env/bin/iqtree"
-MMSEQS_BIN = "/opt/homebrew/Cellar/micromamba/2.8.1/envs/phylomethod_env/bin/mmseqs"
+IQTREE_BIN = "/Users/kazukiaibara/.micromamba/envs/iqtree2/bin/iqtree"
+MMSEQS_BIN = "/opt/homebrew/bin/mmseqs"
 
 EXPERIMENT_CONFIGS = [
     {
@@ -143,6 +143,17 @@ EXPERIMENT_CONFIGS = [
         "default_ics": 0.0,
         "indel": "0.05,0.10",
         "indel_size": None,
+    },
+    {
+        "name": "results_paper_tree",
+        "csv": "benchmark_summary.csv",
+        "type": "paper_tree",
+        "keys": ["distance", "length", "replicate"],
+        "default_taxa": 32,
+        "default_alpha": 1.0,
+        "default_ics": 0.0,
+        "indel": "0.10,0.10",
+        "indel_size": "POW{1.7/50},POW{1.7/50}",
     },
     {
         "name": "results_paper_tree_pre_fix",
@@ -287,58 +298,104 @@ def simulate_single_replicate_task(task: Tuple[str, Dict[str, Any], int]) -> Tup
     indel = params.get("indel", "0.05,0.10")
     indel_size = params.get("indel_size", None)
 
-    cur_seed = rep
+    for attempt in range(5):
+        cur_seed = rep + attempt * 100000
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sim_prefix = os.path.join(tmpdir, f"sim_{rep}_{attempt}")
+            cmd = [IQTREE_BIN, "--alisim", sim_prefix]
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        sim_prefix = os.path.join(tmpdir, f"sim_{rep}")
-        cmd = [IQTREE_BIN, "--alisim", sim_prefix]
+            # Explicit length passed to AliSim
+            cmd.extend(["--length", str(length)])
 
-        # CRITICAL FIX: Pass length to AliSim
-        cmd.extend(["--length", str(length)])
+            try:
+                if sim_type == "simple_lg":
+                    cmd.extend(["-m", "LG"])
+                    cmd.extend(["-t", f"RANDOM{{bd{{0.1/0.05}}/{taxa}}}"])
+                    cmd.extend(["--indel", indel])
+                    if indel_size:
+                        cmd.extend(["--indel-size", indel_size])
+                    cmd.extend(["--branch-scale", str(dist), "-af", "fasta", "-seed", str(cur_seed), "--redo"])
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    fasta_path = f"{sim_prefix}.unaligned.fa" if os.path.exists(f"{sim_prefix}.unaligned.fa") else f"{sim_prefix}.fa"
 
-        if sim_type == "simple_lg":
-            cmd.extend(["-m", "LG"])
-        elif sim_type in ["ics", "ics_full"]:
-            part_file = os.path.join(tmpdir, "partition.nex")
-            k_ics = int(round(length * ics_prop))
-            k_ics = max(1, min(length - 1, k_ics)) if 0.0 < ics_prop < 1.0 else (length if ics_prop >= 1.0 else 0)
-            all_sites = list(range(1, length + 1))
-            random.seed(cur_seed)
-            ics_sites = sorted(random.sample(all_sites, k_ics)) if k_ics > 0 else []
-            lg_sites = sorted([s for s in all_sites if s not in set(ics_sites)])
+                elif sim_type == "ics_full" or ics_prop >= 1.0:
+                    cmd.extend(["--mdef", str(ICS_MODEL_PATH)])
+                    cmd.extend(["-m", f"ICS+G4{{{alpha}}}"])
+                    cmd.extend(["--seqtype", "AA"])
+                    cmd.extend(["-t", f"RANDOM{{bd{{0.1/0.05}}/{taxa}}}"])
+                    cmd.extend(["--indel", indel])
+                    if indel_size:
+                        cmd.extend(["--indel-size", indel_size])
+                    cmd.extend(["--branch-scale", str(dist), "-af", "fasta", "-seed", str(cur_seed), "--redo"])
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    fasta_path = f"{sim_prefix}.unaligned.fa" if os.path.exists(f"{sim_prefix}.unaligned.fa") else f"{sim_prefix}.fa"
 
-            with open(part_file, "w") as pf:
-                pf.write("#nexus\nbegin sets;\n")
-                charparts = []
-                if lg_sites:
-                    pf.write(f"    charset part_lg = {' '.join(map(str, lg_sites))};\n")
-                    charparts.append(f"LG+G4{{{alpha}}}:part_lg")
-                if ics_sites:
-                    pf.write(f"    charset part_ics = {' '.join(map(str, ics_sites))};\n")
-                    charparts.append(f"ICS+G4{{{alpha}}}:part_ics")
-                pf.write(f"    charpartition mypart = {', '.join(charparts)};\nend;\n")
+                elif sim_type == "ics" and ics_prop > 0.0:
+                    k_ics = int(round(length * ics_prop))
+                    k_ics = max(1, min(length - 1, k_ics))
+                    k_lg = length - k_ics
 
-            cmd.extend(["--seqtype", "AA", "--mdef", str(ICS_MODEL_PATH), "-q", part_file])
-        else:
-            cmd.extend(["-m", f"LG+G4{{{alpha}}}"])
+                    # 1. Simulate LG part on random Birth-Death tree with indels
+                    prefix_lg = sim_prefix + "_lg"
+                    cmd_lg = [
+                        IQTREE_BIN, "--alisim", prefix_lg,
+                        "--length", str(k_lg),
+                        "-m", f"LG+G4{{{alpha}}}",
+                        "-t", f"RANDOM{{bd{{0.1/0.05}}/{taxa}}}",
+                        "--indel", indel,
+                        "--branch-scale", str(dist),
+                        "-af", "fasta",
+                        "-seed", str(cur_seed),
+                        "--redo"
+                    ]
+                    if indel_size:
+                        cmd_lg.extend(["--indel-size", indel_size])
+                    subprocess.run(cmd_lg, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    treefile = prefix_lg + ".treefile"
 
-        cmd.extend(["-t", f"RANDOM{{bd{{0.1/0.05}}/{taxa}}}"])
-        cmd.extend(["--indel", indel])
-        if indel_size:
-            cmd.extend(["--indel-size", indel_size])
-        cmd.extend(["--branch-scale", str(dist), "-af", "fasta", "-seed", str(cur_seed), "--redo"])
+                    # 2. Simulate ICS part on the exact same tree without indels
+                    prefix_ics = sim_prefix + "_ics"
+                    cmd_ics = [
+                        IQTREE_BIN, "--alisim", prefix_ics,
+                        "--mdef", str(ICS_MODEL_PATH),
+                        "-m", f"ICS+G4{{{alpha}}}",
+                        "--length", str(k_ics),
+                        "-t", treefile,
+                        "--seqtype", "AA",
+                        "-af", "fasta",
+                        "-seed", str(cur_seed + 10007),
+                        "--redo"
+                    ]
+                    subprocess.run(cmd_ics, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            fasta_path = f"{sim_prefix}.unaligned.fa"
-            if not os.path.exists(fasta_path):
-                fasta_path = f"{sim_prefix}.fa"
+                    # 3. Interleave/concatenate LG and ICS parts
+                    fasta_lg = prefix_lg + ".unaligned.fa" if os.path.exists(prefix_lg + ".unaligned.fa") else prefix_lg + ".fa"
+                    fasta_ics = prefix_ics + ".unaligned.fa" if os.path.exists(prefix_ics + ".unaligned.fa") else prefix_ics + ".fa"
 
-            if os.path.exists(fasta_path):
-                stats = compute_single_replicate_sss(fasta_path, sensitivity=7.5, threads=1)
-                return cond_id, rep, stats
-        except Exception as e:
-            pass
+                    recs_lg = {r.id: str(r.seq) for r in SeqIO.parse(fasta_lg, "fasta")}
+                    recs_ics = {r.id: str(r.seq) for r in SeqIO.parse(fasta_ics, "fasta")}
+
+                    fasta_path = sim_prefix + ".unaligned.fa"
+                    with open(fasta_path, "w") as f_out:
+                        for tid in sorted(recs_lg.keys()):
+                            s_comb = recs_lg[tid] + recs_ics.get(tid, "")
+                            f_out.write(f">{tid}\n{s_comb}\n")
+
+                else:
+                    cmd.extend(["-m", f"LG+G4{{{alpha}}}"])
+                    cmd.extend(["-t", f"RANDOM{{bd{{0.1/0.05}}/{taxa}}}"])
+                    cmd.extend(["--indel", indel])
+                    if indel_size:
+                        cmd.extend(["--indel-size", indel_size])
+                    cmd.extend(["--branch-scale", str(dist), "-af", "fasta", "-seed", str(cur_seed), "--redo"])
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    fasta_path = f"{sim_prefix}.unaligned.fa" if os.path.exists(f"{sim_prefix}.unaligned.fa") else f"{sim_prefix}.fa"
+
+                if os.path.exists(fasta_path) and os.path.getsize(fasta_path) > 0:
+                    stats = compute_single_replicate_sss(fasta_path, sensitivity=7.5, threads=1)
+                    return cond_id, rep, stats
+            except Exception:
+                continue
 
     # Fallback
     return cond_id, rep, {
@@ -361,13 +418,15 @@ def get_condition_hash(params: Dict[str, Any]) -> str:
 
 
 def load_checkpoint_cache() -> Dict[Tuple[str, int], Dict[str, float]]:
-    """Loads existing replicate results from persistent cache file if available."""
+    """Loads existing valid replicate results from persistent cache file if available."""
     cache: Dict[Tuple[str, int], Dict[str, float]] = {}
     if CACHE_FILE.exists():
         try:
             df_cache = pd.read_csv(CACHE_FILE)
+            # Only keep non-zero valid runs
+            df_cache = df_cache[df_cache["sss_mean"].notna()].drop_duplicates(subset=["cond_hash", "replicate"])
             for _, row in df_cache.iterrows():
-                cid = row["cond_hash"]
+                cid = str(row["cond_hash"])
                 rep = int(row["replicate"])
                 cache[(cid, rep)] = {
                     "sss_mean": float(row["sss_mean"]),
@@ -378,7 +437,7 @@ def load_checkpoint_cache() -> Dict[Tuple[str, int], Dict[str, float]]:
                     "sss_zero_frac": float(row["sss_zero_frac"]),
                     "num_taxa": int(row["num_taxa"]) if "num_taxa" in row else 32
                 }
-            print(f"Loaded {len(cache):,} pre-computed replicates from cache: {CACHE_FILE.name}")
+            print(f"Loaded {len(cache):,} valid pre-computed replicates from cache: {CACHE_FILE.name}")
         except Exception as e:
             print(f"[Warning] Could not load cache: {e}")
     return cache
@@ -393,9 +452,9 @@ def append_to_cache(batch_results: List[Dict[str, Any]]):
     df_batch.to_csv(CACHE_FILE, mode="a", index=False, header=header)
 
 
-def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: int = 100):
+def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: int = 50):
     print("=" * 70)
-    print("STEP 1: Scanning All 14 Benchmark Result Datasets...")
+    print("STEP 1: Scanning All Benchmark Result Datasets...")
     print("=" * 70)
 
     cached_results = load_checkpoint_cache()
@@ -413,8 +472,8 @@ def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: in
         df = pd.read_csv(csv_path)
         exp_dfs[exp_name] = df
 
-        if exp_name == "results_paper_tree_pre_fix":
-            # Paper tree already has 1800 replicates fully calculated!
+        if exp_name in ["results_paper_tree", "results_paper_tree_pre_fix"]:
+            # Paper tree already has full replicate SSS calculated in its own directory!
             continue
 
         cond_keys = [k for k in exp["keys"] if k in df.columns]
@@ -442,7 +501,7 @@ def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: in
     total_tasks = len(tasks_to_run)
     total_reps_target = len(cached_results) + total_tasks
     print(f"Total target replicates across all conditions: {total_reps_target:,}")
-    print(f"Already cached: {len(cached_results):,}")
+    print(f"Already cached (valid): {len(cached_results):,}")
     print(f"Remaining replicates to compute: {total_tasks:,}")
 
     if total_tasks > 0:
@@ -460,19 +519,20 @@ def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: in
                 cid, rep = futures[fut]
                 try:
                     res_cid, res_rep, stats = fut.result()
-                    cached_results[(res_cid, res_rep)] = stats
-                    params = unique_cond_params[res_cid]
-                    batch_to_save.append({
-                        "cond_hash": res_cid,
-                        "replicate": res_rep,
-                        "distance": params["distance"],
-                        "length": params["length"],
-                        "alpha": params.get("alpha", 1.0),
-                        "ics_prop": params.get("ics_prop", 0.0),
-                        "num_taxa": params.get("num_taxa", 32),
-                        "type": params["type"],
-                        **stats
-                    })
+                    if "sss_mean" in stats and stats["sss_mean"] >= 0.0:
+                        cached_results[(res_cid, res_rep)] = stats
+                        params = unique_cond_params[res_cid]
+                        batch_to_save.append({
+                            "cond_hash": res_cid,
+                            "replicate": res_rep,
+                            "distance": params["distance"],
+                            "length": params["length"],
+                            "alpha": params.get("alpha", 1.0),
+                            "ics_prop": params.get("ics_prop", 0.0),
+                            "num_taxa": params.get("num_taxa", 32),
+                            "type": params["type"],
+                            **stats
+                        })
                 except Exception as e:
                     print(f"[Error] Task {cid} rep {rep}: {e}")
 
@@ -506,8 +566,8 @@ def run_full_replicate_calculation(max_workers: int = 8, batch_save_interval: in
         df = exp_dfs[exp_name].copy()
         sss_csv_path = exp_dir / "sss_summary.csv"
 
-        if exp_name == "results_paper_tree_pre_fix":
-            print(f"[{exp_name}] Using established sss_summary.csv.")
+        if exp_name in ["results_paper_tree", "results_paper_tree_pre_fix"]:
+            print(f"[{exp_name}] Using established replicate-level SSS summary.")
             continue
 
         sss_rows = []

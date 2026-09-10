@@ -15,6 +15,9 @@ micromamba activate phylomethod_env
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 mkdir -p logs results/results_paper_tree2
 
+# INDELible バイナリの配備・確認
+bash bin/install_indelible.sh
+
 # JVMヒープを明示的に指定
 export NXF_OPTS="-Xms2g -Xmx12g"
 
