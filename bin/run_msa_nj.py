@@ -5,6 +5,8 @@ Runs MAFFT alignment, then applies the EXACT SAME gap-eliminated Poisson distanc
 calculation module as PWA to construct the distance matrix, and infers the NJ tree using RapidNJ or FastME.
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import argparse

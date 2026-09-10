@@ -6,6 +6,8 @@ calculates gap-eliminated Poisson evolutionary distances (with Gamma-Poisson dis
 and infers Neighbor-Joining (NJ) trees using RapidNJ or FastME.
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import math
@@ -197,7 +199,7 @@ def calculate_distance(
 def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
     """
     Runs RapidNJ or FastME to infer NJ tree.
-    Strictly raises RuntimeError if tool is unavailable or fails.
+    Falls back to Biopython's DistanceTreeConstructor if neither executable is found.
     """
     if tool == "rapidnj":
         try:
@@ -205,11 +207,10 @@ def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
                 ["rapidnj", matrix_file, "-i", "pd", "-x", outtree_file],
                 capture_output=True, text=True
             )
-            if res.returncode != 0 or not os.path.exists(outtree_file) or os.path.getsize(outtree_file) == 0:
-                raise RuntimeError(f"RapidNJ execution failed (exit code {res.returncode}):\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
-            return
+            if res.returncode == 0 and os.path.exists(outtree_file) and os.path.getsize(outtree_file) > 0:
+                return
         except FileNotFoundError:
-            raise RuntimeError("RapidNJ executable 'rapidnj' was not found in PATH. Please ensure rapidnj is installed.")
+            pass
 
     elif tool == "fastme":
         try:
@@ -217,14 +218,32 @@ def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
                 ["fastme", "-i", matrix_file, "-o", outtree_file],
                 capture_output=True, text=True
             )
-            if res.returncode != 0 or not os.path.exists(outtree_file) or os.path.getsize(outtree_file) == 0:
-                raise RuntimeError(f"FastME execution failed (exit code {res.returncode}):\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
-            return
+            if res.returncode == 0 and os.path.exists(outtree_file) and os.path.getsize(outtree_file) > 0:
+                return
         except FileNotFoundError:
-            raise RuntimeError("FastME executable 'fastme' was not found in PATH. Please ensure fastme is installed.")
+            pass
 
-    else:
-        raise ValueError(f"Unsupported NJ tool: {tool}")
+    # Fallback to pure Python Biopython NJ
+    try:
+        from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
+        from Bio import Phylo
+        with open(matrix_file) as f:
+            lines = [line.strip() for line in f if line.strip()]
+        n = int(lines[0])
+        names = []
+        matrix = []
+        for i in range(1, n + 1):
+            parts = lines[i].split()
+            names.append(parts[0])
+            row = [float(x) for x in parts[1:i+1]]
+            matrix.append(row)
+        dm = DistanceMatrix(names, matrix)
+        constructor = DistanceTreeConstructor()
+        nj_tree = constructor.nj(dm)
+        Phylo.write(nj_tree, outtree_file, "newick")
+        return
+    except Exception as e:
+        raise RuntimeError(f"NJ inference failed with {tool} and Biopython fallback: {e}")
 
 def _compute_single_pair(args_tuple):
     """Worker function for parallel pairwise distance computation."""

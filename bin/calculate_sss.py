@@ -190,8 +190,23 @@ def main() -> None:
 
     records: List[Dict[str, Any]] = []
 
-    # Case 1: Chunk execution with --rep_start and --rep_end
-    if args.rep_start is not None and args.rep_end is not None:
+    # Case 1: Single explicit --fasta (highest priority)
+    if args.fasta:
+        rep = args.rep_start if args.rep_start is not None else 1
+        stats = compute_sss_for_fasta(
+            args.fasta,
+            sensitivity=args.sensitivity,
+            threads=args.threads
+        )
+        records.append({
+            "distance": args.distance,
+            "length": args.length,
+            "replicate": rep,
+            **stats
+        })
+
+    # Case 2: Chunk execution with --rep_start and --rep_end
+    elif args.rep_start is not None and args.rep_end is not None:
         for rep in range(args.rep_start, args.rep_end + 1):
             fasta_candidate = f"seqs_{rep}.fasta"
             if not os.path.exists(fasta_candidate):
@@ -215,7 +230,7 @@ def main() -> None:
             }
             records.append(row)
 
-    # Case 2: List of fastas
+    # Case 3: List of fastas
     elif args.fastas:
         for fpath in args.fastas:
             fname = os.path.basename(fpath)
@@ -236,20 +251,6 @@ def main() -> None:
                 "replicate": rep,
                 **stats
             })
-
-    # Case 3: Single fasta
-    elif args.fasta:
-        stats = compute_sss_for_fasta(
-            args.fasta,
-            sensitivity=args.sensitivity,
-            threads=args.threads
-        )
-        records.append({
-            "distance": args.distance,
-            "length": args.length,
-            "replicate": 1,
-            **stats
-        })
 
     if not records:
         print("[Warning] No SSS records computed.")

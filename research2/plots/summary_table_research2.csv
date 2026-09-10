@@ -1,0 +1,11 @@
+,,,true_msa_length,true_msa_length,true_gap_pct,true_gap_pct,mean_seq_len,mean_seq_len,true_num_indels,true_num_indels,mafft_fd_score,mafft_fd_score,sss_mean,sss_mean,rcrb_msa_ml,rcrb_msa_ml,rcrb_true_msa_ml,rcrb_true_msa_ml,alignment_loss_ml,alignment_loss_ml
+,,,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std
+cond_name,root_length,distance,,,,,,,,,,,,,,,,,,
+alisim_rate0.05,500,0.5,1380.0,,58.28,,575.8,,2081.0,,0.8986,,0.2119,,1.0,,1.0,,0.0,
+alisim_rate0.05,500,2.0,3223.0,,86.57,,432.95,,1611.0,,0.5596,,0.0446,,0.8235,,1.0,,0.1765,
+alisim_rate0.10,500,0.5,2307.0,,75.11,,574.25,,2678.0,,0.7762,,0.1161,,1.0,,1.0,,0.0,
+alisim_rate0.10,500,2.0,7019.0,,92.75,,508.85,,1910.0,,0.4549,,0.0388,,0.7647,,1.0,,0.2353,
+indelible_rate0.05,500,0.5,1226.0,,56.9,,528.45,,2537.0,,0.8307,,0.1846,,1.0,,1.0,,0.0,
+indelible_rate0.05,500,2.0,3256.0,,86.49,,439.9,,3306.0,,0.2715,,0.0329,,0.7647,,1.0,,0.2353,
+indelible_rate0.10,500,0.5,1585.0,,73.31,,423.1,,2794.0,,0.686,,0.0225,,1.0,,1.0,,0.0,
+indelible_rate0.10,500,2.0,12139.0,,91.53,,1028.5,,7219.0,,0.3762,,0.0214,,0.7059,,0.9412,,0.2353,

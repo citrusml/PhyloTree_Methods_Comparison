@@ -39,20 +39,20 @@ plt.rcParams.update({
 })
 
 PIPELINE_CONFIGS: Dict[str, Dict[str, Any]] = {
-    "MSA+ML": {"color": "#2ca02c", "label": "MSA+ML (IQ-TREE 2)", "linestyle": "-", "linewidth": 2.5, "zorder": 10},
-    "MSA+RAXML": {"color": "#006400", "label": "MSA+RAXML (RAxML)", "linestyle": "-", "linewidth": 2.2, "zorder": 9},
-    "MSA+NJ": {"color": "#ff7f0e", "label": "MSA+NJ (MAFFT + RapidNJ)", "linestyle": "-", "linewidth": 2.4, "zorder": 8},
-    "PWA+NJ": {"color": "#1f77b4", "label": "PWA+NJ (Needleman-Wunsch)", "linestyle": "-", "linewidth": 2.4, "zorder": 7},
-    "GS": {"color": "#9467bd", "label": "GS (Graph Splitting)", "linestyle": "-", "linewidth": 2.6, "zorder": 11},
-    "PWA+FastME": {"color": "#e377c2", "label": "PWA+FastME", "linestyle": "-", "linewidth": 2.2, "zorder": 8},
+    "MSA+ML": {"color": "#2ca02c", "label": "MSA+ML", "linestyle": "-", "linewidth": 2.5, "zorder": 10},
+    "MSA+RAXML": {"color": "#006400", "label": "MSA+RAXML", "linestyle": "-", "linewidth": 2.2, "zorder": 9},
+    "MSA+NJ": {"color": "#ff7f0e", "label": "MSA+NJ", "linestyle": "-", "linewidth": 2.4, "zorder": 8},
+    "PWA+NJ": {"color": "#1f77b4", "label": "PSA+NJ", "linestyle": "-", "linewidth": 2.4, "zorder": 7},
+    "GS": {"color": "#9467bd", "label": "GS", "linestyle": "-", "linewidth": 2.6, "zorder": 11},
+    "PWA+FastME": {"color": "#e377c2", "label": "PSA+FastME", "linestyle": "-", "linewidth": 2.2, "zorder": 8},
     "MSA+FastME": {"color": "#bcbd22", "label": "MSA+FastME", "linestyle": "-", "linewidth": 2.2, "zorder": 8},
-    "PWA+FastME_SPR": {"color": "#e377c2", "label": "PWA+FastME (SPR)", "linestyle": "-", "linewidth": 2.4, "zorder": 9},
-    "MSA+FastME_LG_G": {"color": "#bcbd22", "label": "MSA+FastME (LG+G)", "linestyle": "-", "linewidth": 2.4, "zorder": 9},
-    "TRUE_MSA+ML": {"color": "#8c564b", "label": "TRUE_MSA+ML (Control)", "linestyle": "--", "linewidth": 1.8, "zorder": 4},
-    "TRUE_MSA+RAXML": {"color": "#c49c94", "label": "TRUE_MSA+RAXML (Control)", "linestyle": "-.", "linewidth": 1.8, "zorder": 4},
-    "TRUE_MSA+NJ": {"color": "#7f7f7f", "label": "TRUE_MSA+NJ (Control)", "linestyle": ":", "linewidth": 1.8, "zorder": 3},
-    "TRUE_PWA+NJ": {"color": "#17becf", "label": "TRUE_PWA+NJ (Control)", "linestyle": "-.", "linewidth": 2.0, "zorder": 5},
-    "TRUE_DIST+NJ": {"color": "#333333", "label": "TRUE_DIST+NJ (Control)", "linestyle": ":", "linewidth": 1.5, "zorder": 2},
+    "PWA+FastME_SPR": {"color": "#e377c2", "label": "PSA+FastME_SPR", "linestyle": "-", "linewidth": 2.4, "zorder": 9},
+    "MSA+FastME_LG_G": {"color": "#bcbd22", "label": "MSA+FastME_LG_G", "linestyle": "-", "linewidth": 2.4, "zorder": 9},
+    "TRUE_MSA+ML": {"color": "#8c564b", "label": "TRUE_MSA+ML", "linestyle": "--", "linewidth": 1.8, "zorder": 4},
+    "TRUE_MSA+RAXML": {"color": "#c49c94", "label": "TRUE_MSA+RAXML", "linestyle": "-.", "linewidth": 1.8, "zorder": 4},
+    "TRUE_MSA+NJ": {"color": "#7f7f7f", "label": "TRUE_MSA+NJ", "linestyle": ":", "linewidth": 1.8, "zorder": 3},
+    "TRUE_PWA+NJ": {"color": "#17becf", "label": "TRUE_PSA+NJ", "linestyle": "-.", "linewidth": 2.0, "zorder": 5},
+    "TRUE_DIST+NJ": {"color": "#333333", "label": "TRUE_DIST+NJ", "linestyle": ":", "linewidth": 1.5, "zorder": 2},
 }
 
 EXPERIMENT_FILES = [
@@ -92,12 +92,6 @@ def plot_main_nrf_vs_sss(df: pd.DataFrame, out_path: Path, exp_title: str, log_x
     """Generates the main 2-panel figure: nRF vs SSS and Accuracy (1 - nRF) vs SSS."""
     fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(15.5, 6.2))
 
-    # Reference lines matching Matsui & Iwasaki (2020)
-    for ax in [ax1, ax2]:
-        ax.axvline(0.10, color="#b2182b", linestyle="--", linewidth=1.2, alpha=0.7, label=r"Twilight Boundary ($w = 0.10$)")
-        ax.axvline(0.06, color="#e66101", linestyle="-.", linewidth=1.2, alpha=0.7, label=r"Paper Crossover ($w = 0.06$)")
-        ax.axvline(0.03, color="#5e3c99", linestyle=":", linewidth=1.2, alpha=0.7, label=r"Deep Twilight Zone ($w \leq 0.03$)")
-
     pipelines = df["pipeline"].unique()
     for pipe in pipelines:
         sub = df[df["pipeline"] == pipe].dropna(subset=["sss_mean", "nrf_distance"])
@@ -105,7 +99,7 @@ def plot_main_nrf_vs_sss(df: pd.DataFrame, out_path: Path, exp_title: str, log_x
             continue
 
         cfg = PIPELINE_CONFIGS.get(pipe, {
-            "color": "#888888", "label": pipe, "linestyle": "-", "linewidth": 2.0, "zorder": 5
+            "color": "#888888", "label": pipe.replace("PWA", "PSA"), "linestyle": "-", "linewidth": 2.0, "zorder": 5
         })
 
         x = sub["sss_mean"].values
@@ -136,19 +130,19 @@ def plot_main_nrf_vs_sss(df: pd.DataFrame, out_path: Path, exp_title: str, log_x
         if log_x:
             ax.set_xscale("log")
             ax.set_xlim(min_x, max_x)
-            ax.set_xlabel(r"Sequence Similarity Score ($SSS$, log scale)", fontweight="bold", fontsize=11)
+            ax.set_xlabel(r"Sequence Similarity Score: SSS (log scale)", fontweight="bold", fontsize=11)
         else:
             ax.set_xlim(-0.01, max_x)
-            ax.set_xlabel(r"Sequence Similarity Score ($SSS$, linear scale)", fontweight="bold", fontsize=11)
+            ax.set_xlabel(r"Sequence Similarity Score: SSS (linear scale)", fontweight="bold", fontsize=11)
 
     scale_str = "Log Scale" if log_x else "Linear Scale"
-    ax1.set_title(f"A. Topological Error ($nRF$) vs $SSS$\n[{exp_title} - {scale_str}]", fontweight="bold", pad=10)
-    ax1.set_ylabel(r"Normalized Robinson-Foulds Distance ($nRF$, Lower is Better)", fontweight="bold", fontsize=11)
+    ax1.set_title(f"A. Topological Error: nRF vs SSS\n{exp_title} - {scale_str}", fontweight="bold", pad=10)
+    ax1.set_ylabel(r"Normalized Robinson-Foulds Distance: nRF", fontweight="bold", fontsize=11)
     ax1.set_ylim(-0.02, 1.0)
     ax1.legend(loc="upper right", frameon=True, framealpha=0.9, fontsize=8.5)
 
-    ax2.set_title(f"B. Topological Accuracy ($1 - nRF$) vs $SSS$\n[Matsui & Iwasaki (2020) Fig. 3a Replication, {scale_str}]", fontweight="bold", pad=10)
-    ax2.set_ylabel(r"Topological Accuracy ($1 - nRF$, Higher is Better)", fontweight="bold", fontsize=11)
+    ax2.set_title(f"B. Topological Accuracy: 1 - nRF vs SSS\nMatsui & Iwasaki (2020) Fig. 3a Replication - {scale_str}", fontweight="bold", pad=10)
+    ax2.set_ylabel(r"Topological Accuracy: 1 - nRF", fontweight="bold", fontsize=11)
     ax2.set_ylim(-0.02, 1.02)
     ax2.legend(loc="lower right", frameon=True, framealpha=0.9, fontsize=8.5)
 
@@ -190,7 +184,7 @@ def plot_condition_stratified(df: pd.DataFrame, strat_col: str, out_path: Path, 
             if len(sub_p) == 0:
                 continue
             cfg = PIPELINE_CONFIGS.get(pipe, {
-                "color": "#888888", "label": pipe, "linestyle": "-", "linewidth": 1.8, "zorder": 5
+                "color": "#888888", "label": pipe.replace("PWA", "PSA"), "linestyle": "-", "linewidth": 1.8, "zorder": 5
             })
 
             x = sub_p["sss_mean"].values
@@ -202,13 +196,12 @@ def plot_condition_stratified(df: pd.DataFrame, strat_col: str, out_path: Path, 
                 ax.plot(lx, ly, color=cfg["color"], linestyle=cfg["linestyle"], linewidth=cfg["linewidth"],
                         label=cfg["label"], zorder=cfg["zorder"])
 
-        ax.axvline(0.06, color="#e66101", linestyle="-.", linewidth=1.0, alpha=0.7)
         ax.set_title(label_fmt.format(v), fontweight="bold", fontsize=11)
         ax.set_xlabel(r"$SSS$", fontweight="bold")
         ax.set_ylim(-0.02, 0.95)
         ax.set_xscale("log")
         if idx % ncols == 0:
-            ax.set_ylabel(r"Topological Error ($nRF$)", fontweight="bold")
+            ax.set_ylabel(r"Topological Error: nRF", fontweight="bold")
         if idx == ncols - 1:
             ax.legend(loc="upper right", fontsize=8, frameon=True, framealpha=0.88)
 
@@ -216,7 +209,7 @@ def plot_condition_stratified(df: pd.DataFrame, strat_col: str, out_path: Path, 
     for j in range(idx + 1, len(axes_flat)):
         axes_flat[j].set_visible(False)
 
-    plt.suptitle(f"{exp_title} - Stratified by {strat_col.capitalize()} (nRF vs SSS)", fontweight="bold", fontsize=13, y=1.02)
+    plt.suptitle(f"{exp_title} - Stratified by {strat_col.capitalize()} - nRF vs SSS", fontweight="bold", fontsize=13, y=1.02)
     plt.tight_layout()
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
@@ -274,6 +267,13 @@ def process_all_plots():
         if "sss_mean" not in df.columns:
             print(f"[{exp_dir_name}] 'sss_mean' column missing in {csv_name}. Skipping plot generation.")
             continue
+
+        # Exclude sequence length 100 as requested
+        if "length" in df.columns:
+            n_before = len(df)
+            df = df[pd.to_numeric(df["length"], errors="coerce") != 100].copy()
+            if len(df) < n_before:
+                print(f"  [Filtered] Excluded length == 100 ({n_before:,} -> {len(df):,} rows)")
 
         exp_title = exp_dir_name.replace("results_", "").replace("_", " ").title()
         print(f"Processing plots for: {exp_dir_name} ({len(df):,} rows)...")

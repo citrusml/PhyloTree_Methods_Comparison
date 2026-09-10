@@ -21,11 +21,12 @@ process SIMULATE_DATA {
 
     // INDELible specific parameter parsing
     def raw_model = params.model ? params.model.toString().toUpperCase() : 'WAG'
-    def submodel_str = raw_model.contains('WAG') ? 'WAG'
+    def submodel_str = raw_model.contains('LG') ? 'LG'
+                     : raw_model.contains('WAG') ? 'WAG'
                      : raw_model.contains('JTT') ? 'JTT'
                      : raw_model.contains('DAYHOFF') ? 'DAYHOFF'
                      : raw_model.contains('BLOSUM62') ? 'BLOSUM62'
-                     : 'WAG'
+                     : 'LG'
     def indel_str = params.containsKey('indel_size') ? params.indel_size.toString() : "POW 1.7 50"
     def indelible_spec = indel_str.replaceAll(/[\{\},]/, ' ').replaceAll(/\//, ' ').replaceAll(/\s+/, ' ').trim()
     def m_parts = indelible_spec.split('\\s+')
