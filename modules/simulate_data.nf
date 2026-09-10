@@ -97,10 +97,10 @@ process SIMULATE_DATA {
                 WORK_IND="work_indelible_\${rep}_\${attempt}"
                 rm -rf "\${WORK_IND}" && mkdir -p "\${WORK_IND}"
 
-                cat << 'EOF' > "\${WORK_IND}/control.txt"
+                cat << EOF > "\${WORK_IND}/control.txt"
 [TYPE] AMINOACID 1
 [SETTINGS]
-  [randomseed] ${cur_seed}
+  [randomseed] \${cur_seed}
   [output] FASTA
 [MODEL] mymodel
   [submodel] ${submodel_str}
@@ -109,7 +109,7 @@ process SIMULATE_DATA {
   [deletemodel] ${indelible_indel_cmd}
   [insertrate] ${params.insert_rate}
   [deleterate] ${params.delete_rate}
-[TREE] mytree ${TREE_STR}
+[TREE] mytree \${TREE_STR}
 [PARTITIONS] mypart [mytree mymodel ${len}]
 [EVOLVE] mypart 1 sim_\${rep}
 EOF
