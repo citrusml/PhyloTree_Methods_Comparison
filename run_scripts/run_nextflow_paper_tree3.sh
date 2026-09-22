@@ -18,6 +18,12 @@ mkdir -p logs results/results_paper_tree3
 # INDELible バイナリの配備・確認
 bash bin/install_indelible.sh
 
+# BioPerl の配備・確認 (未インストールの場合は自動インストール)
+if ! perl -MBio::Tree::RandomFactory -e 1 2>/dev/null; then
+    echo "[$(date)] Installing perl-bioperl into phylomethod_env..."
+    micromamba install -y -c bioconda -c conda-forge perl-bioperl
+fi
+
 # JVMヒープを明示的に指定
 export NXF_OPTS="-Xms2g -Xmx12g"
 

@@ -22,7 +22,6 @@ use warnings;
 use Getopt::Long;
 use File::Basename;
 use File::Path qw(make_path);
-use IO::String;
 use Bio::Tree::RandomFactory;
 use Bio::TreeIO;
 
@@ -124,10 +123,11 @@ for my $node ($tree->get_nodes) {
 }
 
 # 4. Serialize to Newick format using Bio::TreeIO
-my $io = IO::String->new();
+my $newick_str = "";
+open(my $io, ">", \$newick_str) or die "Cannot open in-memory scalar buffer: $!\n";
 my $treeio = Bio::TreeIO->new(-format => "newick", -fh => $io);
 $treeio->write_tree($tree);
-my $newick_str = ${$io->string_ref};
+close($io);
 
 # Trim whitespace/newlines
 $newick_str =~ s/^\s+|\s+$//g;

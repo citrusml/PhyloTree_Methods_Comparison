@@ -16,6 +16,7 @@ import os
 import sys
 import math
 import random
+import shutil
 import argparse
 import tempfile
 import subprocess
@@ -175,15 +176,65 @@ def _generate_paper_yule_tree_python(
     return root.to_newick() + ";"
 
 
-def get_perl_executable() -> str:
+def get_perl_executable() -> Optional[str]:
     """
-    Finds a perl executable capable of running BioPerl.
-    Checks conda/micromamba environment first, then PATH.
+    Finds a perl executable capable of running BioPerl (Bio::Tree::RandomFactory).
+    Checks conda/micromamba environment first, then PATH and standard locations.
     """
+    candidates = []
+
+    # 1. Same directory as current python interpreter (conda/micromamba env)
     env_perl = os.path.join(os.path.dirname(sys.executable), "perl")
     if os.path.isfile(env_perl) and os.access(env_perl, os.X_OK):
-        return env_perl
-    return "perl"
+        candidates.append(env_perl)
+
+    # 2. CONDA_PREFIX if set
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix:
+        cp_perl = os.path.join(conda_prefix, "bin", "perl")
+        if os.path.isfile(cp_perl) and os.access(cp_perl, os.X_OK):
+            candidates.append(cp_perl)
+
+    # 3. perl from PATH
+    which_perl = shutil.which("perl")
+    if which_perl and which_perl not in candidates:
+        candidates.append(which_perl)
+
+    # Test each candidate for Bio::Tree::RandomFactory
+    for p in candidates:
+        try:
+            res = subprocess.run(
+                [p, "-MBio::Tree::RandomFactory", "-e", "1"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                return p
+        except Exception:
+            continue
+
+    # Fallback to first available perl candidate if any
+    return candidates[0] if candidates else (which_perl or "perl")
+
+
+def is_bioperl_available() -> bool:
+    """
+    Checks if BioPerl (Bio::Tree::RandomFactory) is available in any perl executable.
+    """
+    perl_bin = get_perl_executable()
+    if not perl_bin:
+        return False
+    try:
+        res = subprocess.run(
+            [perl_bin, "-MBio::Tree::RandomFactory", "-e", "1"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
 
 
 def generate_tree_with_bioperl(
@@ -197,33 +248,6 @@ def generate_tree_with_bioperl(
     """
     Generates a tree strictly using BioPerl Bio::Tree::RandomFactory via bin/generate_tree.pl.
     Raises RuntimeError on failure without fallback.
-
-    Parameters
-    ----------
-    taxa : int, default=32
-        Number of terminal taxa (leaves).
-    scale : float, default=1.0
-        Evolutionary distance scaling factor D.
-    seed : int or None, default=None
-        Random seed for reproducibility.
-    rate_sd : float, default=0.0
-        Rate heterogeneity standard deviation.
-    lba_ratio : float, default=1.0
-        Long-branch attraction ratio.
-    outtree : str or None, default=None
-        Optional output file path.
-
-    Returns
-    -------
-    str
-        Newick formatted tree string.
-
-    Raises
-    ------
-    FileNotFoundError
-        If bin/generate_tree.pl is missing.
-    RuntimeError
-        If BioPerl execution fails.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     pl_script = os.path.join(script_dir, "generate_tree.pl")
@@ -238,7 +262,7 @@ def generate_tree_with_bioperl(
     else:
         target_path = outtree
 
-    perl_bin = get_perl_executable()
+    perl_bin = get_perl_executable() or "perl"
     cmd = [
         perl_bin,
         pl_script,
@@ -254,8 +278,12 @@ def generate_tree_with_bioperl(
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
+            err_msg = proc.stderr.strip() or proc.stdout.strip()
+            hint = ""
+            if "Bio/Tree/RandomFactory.pm" in err_msg or "IO/String.pm" in err_msg:
+                hint = "\n[HINT] BioPerl is missing or not accessible. Run: micromamba install -y -c bioconda -c conda-forge perl-bioperl"
             raise RuntimeError(
-                f"BioPerl execution failed (code {proc.returncode}):\n{proc.stderr.strip() or proc.stdout.strip()}"
+                f"BioPerl execution failed (code {proc.returncode}) using {perl_bin}:\n{err_msg}{hint}"
             )
 
         with open(target_path, "r") as f:
@@ -364,9 +392,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--engine",
-        choices=["bioperl", "python"],
-        default="bioperl",
-        help="Tree generation engine (default: bioperl). Strictly executed without fallback.",
+        choices=["auto", "bioperl", "python"],
+        default="auto",
+        help="Tree generation engine (default: auto; uses BioPerl if available, falls back to Python with warning).",
     )
     parser.add_argument(
         "--rate_sd",
@@ -394,8 +422,20 @@ def main() -> None:
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
+    # Determine execution engine
+    chosen_engine = args.engine
+    if chosen_engine == "auto":
+        if is_bioperl_available():
+            chosen_engine = "bioperl"
+        else:
+            sys.stderr.write(
+                "[WARNING] BioPerl (Bio::Tree::RandomFactory) not found. "
+                "Using mathematically equivalent Python backward Yule generator.\n"
+            )
+            chosen_engine = "python"
+
     # Generate tree strictly with selected engine
-    if args.engine == "bioperl":
+    if chosen_engine == "bioperl":
         generate_tree_with_bioperl(
             taxa=args.taxa,
             scale=args.scale,
@@ -405,7 +445,7 @@ def main() -> None:
             outtree=args.outtree,
         )
         print(f"Generated {args.model} tree [BioPerl] ({args.taxa} taxa, scale={args.scale}, seed={args.seed}) -> {args.outtree}")
-    elif args.engine == "python":
+    elif chosen_engine == "python":
         tree_newick = _generate_paper_yule_tree_python(
             taxa=args.taxa,
             scale=args.scale,

@@ -20,5 +20,6 @@ dependencies:
   - numpy>=1.24.0
   - mrbayes>=3.2.7
   - mmseqs2>=18.8
+  - perl-bioperl>=1.6.924
   - liblapacke>=3.11.0
   - openblas
