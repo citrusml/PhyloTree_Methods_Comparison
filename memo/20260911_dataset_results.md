@@ -136,6 +136,9 @@ $$\text{TCS} = \frac{\text{root.tax\_score} - \text{root.leaf\_acc} \times |\tex
 | **Bacteria** (`bac`) | 100 | 31.6% (31.6勝) | 17.1% (17.1勝) | 18.1% (18.1勝) | **33.2%** (33.2勝) | **GS** | **2.42** / 2.56 / 2.49 / 2.54 |
 | **全 4 生物群 合計** | **400** | **36.0%** (143.9勝) | **20.6%** (82.4勝) | **21.2%** (84.9勝) | **22.2%** (88.8勝) | **MSA+ML (総合第1位)** | **2.28** / 2.45 / 2.41 / 2.86 |
 
+#### 生物群別 & 全体 同一 HOG 勝率・平均順位プロット
+![生物群別 & 全体 同一 HOG 勝率・平均順位](../dataset/results/plot_group_win_rates.png)
+
 ### 6.2. 2 手法間の直接対決（Head-to-Head: 全 400 HOG）
 
 | 対戦カード (Method 1 vs Method 2) | M1 勝利数 (%) | 引き分け (%) | M2 勝利数 (%) | 平均 ΔTCS (M1 - M2) | 勝敗の要約 |
@@ -308,13 +311,15 @@ $$\text{TCS} = \frac{\text{root.tax\_score} - \text{root.leaf\_acc} \times |\tex
   - `raw_fasta/` : 全 9 HOG の入力配列 FASTA ファイル
 
 ### 可視化プロット（PNG）
-1. [plot_sss_binned_win_rates.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/plot_sss_binned_win_rates.png): SSS 帯別の勝率棒グラフ & 相対スコア推移
-2. [plot_within_hog_normalized_tcs.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/plot_within_hog_normalized_tcs.png): 木サイズの影響を排除した HOG 内正規化スコア vs SSS 散布図
-3. [scatter_sss_vs_tcs_by_group.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/scatter_sss_vs_tcs_by_group.png): 生物群別 SSS vs TCS 散布図（2x2）
-4. [method_concordance_heatmaps.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/method_concordance_heatmaps.png): 手法間平均 nRF ヒートマップ
-5. [method_concordance_violins.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/method_concordance_violins.png): 手法間 nRF 分布バイオリンプロット
+1. [plot_group_win_rates.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/plot_group_win_rates.png): 生物群別 & 全体 同一 HOG 勝率・平均順位プロット（6.1項対応）
+2. [plot_sss_binned_win_rates.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/plot_sss_binned_win_rates.png): SSS 帯別の勝率棒グラフ & 相対スコア推移
+3. [plot_within_hog_normalized_tcs.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/plot_within_hog_normalized_tcs.png): 木サイズの影響を排除した HOG 内正規化スコア vs SSS 散布図
+4. [scatter_sss_vs_tcs_by_group.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/scatter_sss_vs_tcs_by_group.png): 生物群別 SSS vs TCS 散布図（2x2）
+5. [method_concordance_heatmaps.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/method_concordance_heatmaps.png): 手法間平均 nRF ヒートマップ
+6. [method_concordance_violins.png](file:///Users/kazukiaibara/PhyloMethod/dataset/results/method_concordance_violins.png): 手法間 nRF 分布バイオリンプロット
 
 ### 実行スクリプト（Python）
-1. [run_dataset_methods.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/run_dataset_methods.py): 実データ 4 手法並列実行コアスクリプト
-2. [calculate_dataset_tcs.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/calculate_dataset_tcs.py): MAD ルーティング適用 TCS 計算スクリプト
-3. [analyze_within_hog_tcs.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/analyze_within_hog_tcs.py): 同一 HOG 比較・勝率・SSS 帯別統計スクリプト
+1. [plot_group_win_rates.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/plot_group_win_rates.py): 生物群別勝率・順位プロット生成スクリプト
+2. [analyze_within_hog_tcs.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/analyze_within_hog_tcs.py): 同一 HOG 比較・勝率・SSS 帯別統計スクリプト
+3. [calculate_dataset_tcs.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/calculate_dataset_tcs.py): MAD ルーティング適用 TCS 計算スクリプト
+4. [run_dataset_methods.py](file:///Users/kazukiaibara/PhyloMethod/dataset/scripts/run_dataset_methods.py): 実データ 4 手法並列実行コアスクリプト

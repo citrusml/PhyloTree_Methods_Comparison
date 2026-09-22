@@ -107,6 +107,10 @@ def compute_tree_tcs(tree_newick: str, taxa_map: Dict[str, Set[str]], apply_root
         falling back to midpoint rooting if needed.
       - For GS (Graph Splitting), the tree is inherently rooted via recursive top-down
         spectral bisection.
+
+    Negative branch lengths (e.g. tiny negative values produced by RapidNJ) are clipped
+    to 0 before rooting.  This prevents MAD/midpoint from computing anomalous root
+    positions that cause TCS to collapse to 0 despite a biologically meaningful topology.
     """
     if not tree_newick or not tree_newick.strip():
         return np.nan
@@ -117,6 +121,11 @@ def compute_tree_tcs(tree_newick: str, taxa_map: Dict[str, Set[str]], apply_root
         return np.nan
 
     if apply_rooting and method != "gs":
+        # Clip negative branch lengths to 0 before rooting so that MAD / midpoint
+        # distance calculations are not corrupted by tiny negative values from RapidNJ.
+        for node in t.treenode.traverse():
+            if node.dist < 0:
+                node.dist = 0.0
         try:
             t = t.mod.root_on_minimal_ancestor_deviation()
         except Exception:
