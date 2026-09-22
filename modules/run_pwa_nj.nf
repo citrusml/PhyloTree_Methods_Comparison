@@ -3,6 +3,16 @@ nextflow.enable.dsl=2
 process RUN_PWA_NJ {
     tag "D=${dist}_L=${len}_chk=${chunk_id}[${rep_start}..${rep_end}]"
 
+    publishDir "${params.outdir}/replications", mode: 'copy',
+        enabled: (params.containsKey('save_replications') ? params.save_replications : true),
+        saveAs: { filename ->
+            def m_tree = filename =~ /^pwa_nj_(\d+)\.nwk$/
+            if (m_tree) return "D${dist}_L${len}_rep${m_tree[0][1]}/pwa_nj.nwk"
+            def m_mat = filename =~ /^pwa_matrix_(\d+)\.phylip$/
+            if (m_mat) return "D${dist}_L${len}_rep${m_mat[0][1]}/pwa_matrix.phylip"
+            return null
+        }
+
     input:
     tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path(fastas)
 
@@ -27,6 +37,7 @@ process RUN_PWA_NJ {
         python3 ${moduleDir}/../bin/evaluate_trees.py \\
             --truetree true_tree_\${rep}.nwk \\
             --esttree pwa_nj_\${rep}.nwk \\
+            --matrix pwa_matrix_\${rep}.phylip \\
             --pipeline PWA+NJ \\
             --distance ${dist} \\
             --length ${len} \\

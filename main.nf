@@ -42,6 +42,7 @@ include { RUN_TRUE_MSA_ML }  from './modules/run_true_msa_ml'
 include { RUN_TRUE_MSA_RAXML } from './modules/run_true_msa_raxml'
 include { RUN_TRUE_MSA_BI }  from './modules/run_true_msa_bi'
 include { CALCULATE_SSS }    from './modules/calculate_sss'
+include { CALCULATE_ALIGNMENT_METRICS } from './modules/calculate_alignment_metrics'
 include { COLLECT_AND_PLOT } from './modules/collect_and_plot'
 
 // 型安全なブール値パース関数（CLI文字列 "false"/"true" と Boolean 型の双方に対応）
@@ -91,6 +92,7 @@ workflow {
     def do_true_msa_bi = asBool(params.containsKey('run_true_msa_bi') ? params.run_true_msa_bi : false, false) ||
                          asBool(params.containsKey('run_true_bi')     ? params.run_true_bi     : false, false)
     def do_calc_sss    = asBool(params.containsKey('calc_sss') ? params.calc_sss : true, true)
+    def do_calc_sp     = asBool(params.containsKey('calc_sp') ? params.calc_sp : true, true)
 
     ch_all_csvs = Channel.empty()
 
@@ -107,10 +109,26 @@ workflow {
     }
 
     // 2. MAFFT + MSA系（需要があるときのみ MAFFT を実行）
-    def need_mafft = do_msa_nj || do_msa_ml || do_msa_raxml || do_msa_bi
+    def need_mafft = do_msa_nj || do_msa_ml || do_msa_raxml || do_msa_bi || do_calc_sp
     if (need_mafft) {
         RUN_MAFFT(ch_sim_data)
         ch_msa_data = RUN_MAFFT.out.msa_data
+    }
+
+    // 2.5 MSA SP score (Sum-of-Pairs) & Alignment Properties
+    if (need_mafft && do_calc_sp) {
+        ch_joined_msa = ch_true_msa_data.map { dist, len, chunk_id, rep_start, rep_end, true_trees, true_msas ->
+            [ "${dist}_${len}_${chunk_id}", dist, len, chunk_id, rep_start, rep_end, true_trees, true_msas ]
+        }.join(
+            RUN_MAFFT.out.msa_data.map { dist, len, chunk_id, rep_start, rep_end, true_trees, msas ->
+                [ "${dist}_${len}_${chunk_id}", msas ]
+            }
+        ).map { key, dist, len, chunk_id, rep_start, rep_end, true_trees, true_msas, msas ->
+            [ dist, len, chunk_id, rep_start, rep_end, true_trees, true_msas, msas ]
+        }
+
+        CALCULATE_ALIGNMENT_METRICS(ch_joined_msa)
+        ch_all_csvs = ch_all_csvs.mix(CALCULATE_ALIGNMENT_METRICS.out.csv)
     }
 
     // 3. MSA+NJ, MSA+ML, MSA+RAXML, MSA+BI（各々独立した if、ネストなし）

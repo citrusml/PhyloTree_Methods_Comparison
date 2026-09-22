@@ -8,10 +8,15 @@ process COLLECT_AND_PLOT {
 
     output:
     path("benchmark_summary.csv")
+    path("alignment_summary.csv"), optional: true
     path("sss_summary.csv"), optional: true
     path("regime_map_delta_nrf.png"), optional: true
     path("nrf_boxplots.png"), optional: true
     path("nrf_vs_sss_curves.png"), optional: true
+    path("sp_score_vs_distance.png"), optional: true
+    path("sp_score_vs_mae.png"), optional: true
+    path("sp_score_vs_tree_accuracy.png"), optional: true
+    path("error_propagation_analysis.png"), optional: true
     path("sss_distribution_by_distance.png"), optional: true
     path("sss_breakdown_report.csv"), optional: true
     path("summary_statistics.csv"), optional: true
@@ -24,11 +29,20 @@ process COLLECT_AND_PLOT {
     python3 -c '
 import os, glob, pandas as pd
 
-method_files = [f for f in glob.glob("chunk_*.csv") if not f.startswith("chunk_sss_")]
+method_files = [f for f in glob.glob("chunk_*.csv") if not f.startswith("chunk_sss_") and not f.startswith("chunk_alignment_")]
 if method_files:
     df_methods = pd.concat([pd.read_csv(f) for f in method_files], ignore_index=True)
 else:
     df_methods = pd.DataFrame()
+
+aln_files = glob.glob("chunk_alignment_*.csv")
+if aln_files:
+    df_aln = pd.concat([pd.read_csv(f) for f in aln_files], ignore_index=True).drop_duplicates(subset=["distance", "length", "replicate"])
+    df_aln.to_csv("alignment_summary.csv", index=False)
+    if not df_methods.empty:
+        df_methods = pd.merge(df_methods, df_aln, on=["distance", "length", "replicate"], how="left")
+    else:
+        df_methods = df_aln
 
 sss_files = glob.glob("chunk_sss_*.csv")
 if sss_files:
@@ -42,7 +56,7 @@ else:
     df_merged = df_methods
 
 df_merged.to_csv("benchmark_summary.csv", index=False)
-print(f"[COLLECT_AND_PLOT] Aggregated {len(df_methods)} method rows and {len(sss_files)} SSS chunks into benchmark_summary.csv")
+print(f"[COLLECT_AND_PLOT] Aggregated {len(df_methods)} method rows, {len(aln_files)} alignment chunks, {len(sss_files)} SSS chunks into benchmark_summary.csv")
 '
     python3 ${moduleDir}/../bin/plot/generate_all_reports.py --csv benchmark_summary.csv --outdir .
     """

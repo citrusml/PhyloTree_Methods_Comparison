@@ -402,15 +402,25 @@ def generate_boxplots(df, outdir):
     print(f"Generated: {out_path}")
 
 def generate_summary_table(df, outdir):
-    """Generates aggregated summary statistics table."""
-    summary = df.groupby(["distance", "length", "pipeline"])["nrf_distance"].agg(
-        count="count",
-        mean="mean",
-        std="std",
-        median="median",
-        min="min",
-        max="max"
-    ).reset_index()
+    """Generates aggregated summary statistics table including nRF, RCRB, SP score, and distance MAE."""
+    work_df = df.copy()
+    agg_dict = {
+        "nrf_distance": ["count", "mean", "std", "median", "min", "max"]
+    }
+    if "rcrb" in work_df.columns:
+        agg_dict["rcrb"] = ["mean", "std"]
+    if "sp_score" in work_df.columns:
+        work_df["sp_score"] = pd.to_numeric(work_df["sp_score"], errors="coerce")
+        if work_df["sp_score"].notna().any():
+            agg_dict["sp_score"] = ["mean", "std"]
+    if "dist_mae" in work_df.columns:
+        work_df["dist_mae"] = pd.to_numeric(work_df["dist_mae"], errors="coerce")
+        if work_df["dist_mae"].notna().any():
+            agg_dict["dist_mae"] = ["mean", "std"]
+
+    summary = work_df.groupby(["distance", "length", "pipeline"]).agg(agg_dict)
+    summary.columns = ['_'.join(c).strip('_') for c in summary.columns.values]
+    summary = summary.reset_index()
 
     out_csv = os.path.join(outdir, "summary_statistics.csv")
     summary.to_csv(out_csv, index=False)
@@ -562,6 +572,217 @@ def generate_sss_analysis(df, outdir):
         csv_path = os.path.join(outdir, "sss_breakdown_report.csv")
         rep_df.to_csv(csv_path, index=False)
         print(f"Generated: {csv_path}")
+
+
+# ==========================================
+# 1.6 MSA SP Score & Error Propagation Analysis
+# ==========================================
+
+def generate_alignment_and_error_propagation_analysis(df, outdir):
+    """
+    Analyzes alignment accuracy (SP score), distance estimation error (MAE),
+    and error propagation from alignment to tree topology:
+    1. sp_score_vs_distance.png: SP score decay across evolutionary distances and lengths.
+    2. sp_score_vs_mae.png: SP score vs Distance estimation MAE.
+    3. sp_score_vs_tree_accuracy.png: SP score vs topological error (nRF) / accuracy (RCRB).
+    4. error_propagation_analysis.png: 4-panel synthesis of error cascade (D -> SP -> MAE -> nRF).
+    """
+    if "sp_score" not in df.columns or df["sp_score"].dropna().empty:
+        return
+
+    work_df = df.copy()
+    work_df["sp_score"] = pd.to_numeric(work_df["sp_score"], errors="coerce")
+    if "dist_mae" in work_df.columns:
+        work_df["dist_mae"] = pd.to_numeric(work_df["dist_mae"], errors="coerce")
+    else:
+        work_df["dist_mae"] = np.nan
+
+    valid_sp = work_df.dropna(subset=["sp_score"])
+    if valid_sp.empty:
+        return
+
+    # 1. SP Score vs Distance
+    rep_level = valid_sp.drop_duplicates(subset=["distance", "length", "replicate"]).copy()
+    if not rep_level.empty:
+        plt.figure(figsize=(10, 6))
+        lengths = sorted(rep_level["length"].unique())
+        colors = sns.color_palette("viridis", len(lengths))
+        for idx, l in enumerate(lengths):
+            sub_l = rep_level[rep_level["length"] == l].sort_values("distance")
+            mean_sp = sub_l.groupby("distance")["sp_score"].mean().reset_index()
+            plt.plot(mean_sp["distance"], mean_sp["sp_score"], marker="o", linewidth=2.5,
+                     color=colors[idx], label=f"Length L={l}")
+            plt.scatter(sub_l["distance"], sub_l["sp_score"], color=colors[idx], alpha=0.3, s=20)
+
+        plt.title("MSA Alignment Accuracy (Sum-of-Pairs Score) vs Evolutionary Distance", fontsize=13, fontweight="bold", pad=12)
+        plt.xlabel("Evolutionary Distance (D)", fontsize=11)
+        plt.ylabel("Sum-of-Pairs (SP) Score", fontsize=11)
+        plt.ylim(-0.02, 1.05)
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend(title="Sequence Length", fontsize=10)
+        plt.tight_layout()
+        out1 = os.path.join(outdir, "sp_score_vs_distance.png")
+        plt.savefig(out1, dpi=300)
+        plt.close()
+        print(f"Generated: {out1}")
+
+    # 2. SP Score vs Distance MAE
+    has_mae = work_df["dist_mae"].dropna().count() > 0
+    if has_mae:
+        sub_mae = work_df.dropna(subset=["sp_score", "dist_mae"])
+        if len(sub_mae) >= 3:
+            fig, ax = plt.subplots(figsize=(9, 6))
+            pipes = [p for p in ["PWA+NJ", "MSA+NJ", "TRUE_PWA+NJ", "TRUE_MSA+NJ"] if p in sub_mae["pipeline"].unique()]
+            if not pipes:
+                pipes = list(sub_mae["pipeline"].unique())
+
+            for pipe in pipes:
+                p_data = sub_mae[sub_mae["pipeline"] == pipe]
+                if len(p_data) < 2:
+                    continue
+                color = PIPELINE_COLORS.get(pipe, "#333333")
+                ax.scatter(p_data["sp_score"], p_data["dist_mae"], color=color, alpha=0.5, label=pipe, s=35)
+                # Trend line
+                try:
+                    m, b = np.polyfit(p_data["sp_score"], p_data["dist_mae"], 1)
+                    xs = np.linspace(p_data["sp_score"].min(), p_data["sp_score"].max(), 50)
+                    ax.plot(xs, m * xs + b, color=color, linestyle="--", linewidth=1.8)
+                except Exception:
+                    pass
+
+            ax.set_title("Evolutionary Distance Estimation Error (MAE) vs MSA Accuracy (SP)", fontsize=13, fontweight="bold", pad=12)
+            ax.set_xlabel("MSA Sum-of-Pairs (SP) Score", fontsize=11)
+            ax.set_ylabel("Distance MAE (|d̂_ij - d_ij|)", fontsize=11)
+            ax.grid(True, linestyle="--", alpha=0.5)
+            ax.legend(fontsize=10)
+            plt.tight_layout()
+            out2 = os.path.join(outdir, "sp_score_vs_mae.png")
+            plt.savefig(out2, dpi=300)
+            plt.close()
+            print(f"Generated: {out2}")
+
+    # 3. SP Score vs Tree Accuracy (nRF & RCRB)
+    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(16, 6))
+    preferred_order = ["PWA+NJ", "MSA+NJ", "MSA+ML", "GS", "MSA+RAXML", "MSA+BI"]
+    pipes = [p for p in preferred_order if p in work_df["pipeline"].unique()]
+
+    for pipe in pipes:
+        p_data = work_df[(work_df["pipeline"] == pipe) & work_df["sp_score"].notna() & work_df["nrf_distance"].notna()]
+        if len(p_data) < 3:
+            continue
+        color = PIPELINE_COLORS.get(pipe, "#333333")
+        ax1.scatter(p_data["sp_score"], p_data["nrf_distance"], color=color, alpha=0.35, s=25, label=pipe)
+        ax2.scatter(p_data["sp_score"], p_data["rcrb"], color=color, alpha=0.35, s=25, label=pipe)
+
+        # Trendlines
+        try:
+            m1, b1 = np.polyfit(p_data["sp_score"], p_data["nrf_distance"], 1)
+            xs = np.linspace(p_data["sp_score"].min(), p_data["sp_score"].max(), 50)
+            ax1.plot(xs, m1 * xs + b1, color=color, linewidth=2)
+
+            m2, b2 = np.polyfit(p_data["sp_score"], p_data["rcrb"], 1)
+            ax2.plot(xs, m2 * xs + b2, color=color, linewidth=2)
+        except Exception:
+            pass
+
+    ax1.set_title("Topological Error (nRF) vs MSA SP Score", fontsize=12, fontweight="bold")
+    ax1.set_xlabel("Sum-of-Pairs (SP) Score", fontsize=11)
+    ax1.set_ylabel("Normalized RF Distance", fontsize=11)
+    ax1.set_ylim(-0.05, 1.05)
+    ax1.grid(True, linestyle="--", alpha=0.5)
+    ax1.legend(fontsize=10)
+
+    ax2.set_title("Tree Accuracy (RCRB) vs MSA SP Score", fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Sum-of-Pairs (SP) Score", fontsize=11)
+    ax2.set_ylabel("Correct Branch Ratio (RCRB)", fontsize=11)
+    ax2.set_ylim(-0.05, 1.05)
+    ax2.grid(True, linestyle="--", alpha=0.5)
+    ax2.legend(fontsize=10)
+
+    plt.tight_layout()
+    out3 = os.path.join(outdir, "sp_score_vs_tree_accuracy.png")
+    plt.savefig(out3, dpi=300)
+    plt.close()
+    print(f"Generated: {out3}")
+
+    # 4. Error Propagation Analysis (4-Panel Multi-Plot)
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(14, 11))
+    ((ax_a, ax_b), (ax_c, ax_d)) = axes
+
+    # Panel A: D -> SP score
+    if not rep_level.empty:
+        sns.boxplot(data=rep_level, x="distance", y="sp_score", ax=ax_a, color="#9ecae1", width=0.5, fliersize=2)
+        sns.stripplot(data=rep_level, x="distance", y="sp_score", ax=ax_a, color="#3182bd", alpha=0.4, size=4, jitter=0.2)
+        ax_a.set_title("(a) Divergence (D) -> MSA Accuracy (SP Score)", fontsize=11, fontweight="bold")
+        ax_a.set_xlabel("Evolutionary Distance (D)", fontsize=10)
+        ax_a.set_ylabel("SP Score", fontsize=10)
+        ax_a.grid(True, linestyle="--", alpha=0.5)
+
+    # Panel B: SP score -> Distance MAE
+    if has_mae and len(sub_mae) >= 3:
+        for pipe in [p for p in ["PWA+NJ", "MSA+NJ"] if p in sub_mae["pipeline"].unique()]:
+            p_data = sub_mae[sub_mae["pipeline"] == pipe]
+            color = PIPELINE_COLORS.get(pipe, "#333333")
+            ax_b.scatter(p_data["sp_score"], p_data["dist_mae"], color=color, alpha=0.4, label=pipe, s=25)
+            try:
+                m, b = np.polyfit(p_data["sp_score"], p_data["dist_mae"], 1)
+                xs = np.linspace(p_data["sp_score"].min(), p_data["sp_score"].max(), 50)
+                ax_b.plot(xs, m * xs + b, color=color, linestyle="--", linewidth=1.8)
+            except Exception:
+                pass
+        ax_b.set_title("(b) MSA Accuracy (SP Score) -> Distance Error (MAE)", fontsize=11, fontweight="bold")
+        ax_b.set_xlabel("SP Score", fontsize=10)
+        ax_b.set_ylabel("Distance MAE", fontsize=10)
+        ax_b.grid(True, linestyle="--", alpha=0.5)
+        ax_b.legend(fontsize=9)
+    else:
+        ax_b.text(0.5, 0.5, "Distance MAE Not Available", ha="center", va="center", transform=ax_b.transAxes)
+
+    # Panel C: Distance MAE -> Tree Error (nRF)
+    if has_mae and len(sub_mae) >= 3:
+        for pipe in [p for p in ["PWA+NJ", "MSA+NJ"] if p in sub_mae["pipeline"].unique()]:
+            p_data = sub_mae[sub_mae["pipeline"] == pipe]
+            color = PIPELINE_COLORS.get(pipe, "#333333")
+            ax_c.scatter(p_data["dist_mae"], p_data["nrf_distance"], color=color, alpha=0.4, label=pipe, s=25)
+            try:
+                m, b = np.polyfit(p_data["dist_mae"], p_data["nrf_distance"], 1)
+                xs = np.linspace(p_data["dist_mae"].min(), p_data["dist_mae"].max(), 50)
+                ax_c.plot(xs, m * xs + b, color=color, linestyle="--", linewidth=1.8)
+            except Exception:
+                pass
+        ax_c.set_title("(c) Distance Error (MAE) -> Tree Error (nRF)", fontsize=11, fontweight="bold")
+        ax_c.set_xlabel("Distance MAE", fontsize=10)
+        ax_c.set_ylabel("nRF Distance", fontsize=10)
+        ax_c.grid(True, linestyle="--", alpha=0.5)
+        ax_c.legend(fontsize=9)
+    else:
+        ax_c.text(0.5, 0.5, "Distance MAE Not Available", ha="center", va="center", transform=ax_c.transAxes)
+
+    # Panel D: SP score -> Tree Error (nRF) across all pipelines
+    for pipe in [p for p in ["PWA+NJ", "MSA+NJ", "MSA+ML", "GS"] if p in work_df["pipeline"].unique()]:
+        p_data = work_df[(work_df["pipeline"] == pipe) & work_df["sp_score"].notna()]
+        if len(p_data) < 3:
+            continue
+        color = PIPELINE_COLORS.get(pipe, "#333333")
+        ax_d.scatter(p_data["sp_score"], p_data["nrf_distance"], color=color, alpha=0.35, s=20, label=pipe)
+        try:
+            m, b = np.polyfit(p_data["sp_score"], p_data["nrf_distance"], 1)
+            xs = np.linspace(p_data["sp_score"].min(), p_data["sp_score"].max(), 50)
+            ax_d.plot(xs, m * xs + b, color=color, linewidth=2)
+        except Exception:
+            pass
+    ax_d.set_title("(d) Direct Impact: MSA SP Score -> Tree Error (nRF)", fontsize=11, fontweight="bold")
+    ax_d.set_xlabel("SP Score", fontsize=10)
+    ax_d.set_ylabel("nRF Distance", fontsize=10)
+    ax_d.grid(True, linestyle="--", alpha=0.5)
+    ax_d.legend(fontsize=9)
+
+    plt.suptitle("Phylogenetic Error Propagation Cascade: Alignment -> Distance -> Tree Topology", fontsize=14, fontweight="bold", y=0.995)
+    plt.tight_layout()
+    out4 = os.path.join(outdir, "error_propagation_analysis.png")
+    plt.savefig(out4, dpi=300)
+    plt.close()
+    print(f"Generated: {out4}")
 
 
 # ==========================================
@@ -1425,6 +1646,16 @@ def main():
                 df = pd.merge(df, df_sss, on=["distance", "length", "replicate"], how="left")
                 print(f"Merged SSS data from '{sss_cand}' into benchmark dataframe.")
 
+        # Attempt to auto-merge alignment summary if sp_score is not in df
+        if "sp_score" not in df.columns:
+            aln_cand = os.path.join(args.outdir, "alignment_summary.csv")
+            if not os.path.exists(aln_cand):
+                aln_cand = os.path.join(os.path.dirname(csv_file), "alignment_summary.csv")
+            if os.path.exists(aln_cand):
+                df_aln = pd.read_csv(aln_cand).drop_duplicates(subset=["distance", "length", "replicate"])
+                df = pd.merge(df, df_aln, on=["distance", "length", "replicate"], how="left")
+                print(f"Merged alignment metrics data from '{aln_cand}' into benchmark dataframe.")
+
         if not df.empty and "nrf_distance" in df.columns:
             print(f"Generating phylogenetic benchmark reports from '{csv_file}' ({len(df)} records)...")
             generate_regime_map(df, args.outdir)
@@ -1433,6 +1664,8 @@ def main():
             generate_summary_table(df, args.outdir)
             if "sss_mean" in df.columns and df["sss_mean"].notna().any():
                 generate_sss_analysis(df, args.outdir)
+            if "sp_score" in df.columns and df["sp_score"].notna().any():
+                generate_alignment_and_error_propagation_analysis(df, args.outdir)
 
     # 2. Sequence Length Analysis
     scan_source = args.repdir or (rep_dst if os.path.exists(rep_dst) else args.workdir)

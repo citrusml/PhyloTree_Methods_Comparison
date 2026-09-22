@@ -13,11 +13,12 @@ according to Matsui & Iwasaki (2020, Systematic Biology, 69(2):265-279):
 Appends result row to CSV log.
 """
 
-from typing import Optional
+from typing import Optional, List, Tuple
 import sys
 import os
 import json
 import argparse
+import numpy as np
 import pandas as pd
 import dendropy
 from dendropy.calculate import treecompare
@@ -70,6 +71,79 @@ def compute_shortest_path_edges(
     return None
 
 
+def load_phylip_matrix(matrix_file: str) -> Tuple[List[str], np.ndarray]:
+    """Loads a square PHYLIP distance matrix."""
+    with open(matrix_file) as f:
+        lines = [line.strip() for line in f if line.strip()]
+    n = int(lines[0])
+    names = []
+    matrix = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        parts = lines[i + 1].split()
+        names.append(parts[0])
+        matrix[i, :] = [float(x) for x in parts[1:n + 1]]
+    return names, matrix
+
+
+def compute_distance_metrics(
+    true_tree_file: str,
+    est_matrix_file: str
+) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """
+    Computes distance estimation error metrics (MAE, RMSE, Bias, Correlation)
+    between estimated distance matrix and true tree patristic distances.
+
+    Parameters
+    ----------
+    true_tree_file : str
+        Path to True Newick Tree file.
+    est_matrix_file : str
+        Path to estimated distance matrix in PHYLIP format.
+
+    Returns
+    -------
+    Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]
+        (dist_mae, dist_rmse, dist_bias, dist_corr)
+    """
+    if not os.path.exists(est_matrix_file) or os.path.getsize(est_matrix_file) == 0:
+        return None, None, None, None
+    try:
+        names, est_mat = load_phylip_matrix(est_matrix_file)
+        n = len(names)
+        if n < 2:
+            return None, None, None, None
+
+        tns = dendropy.TaxonNamespace()
+        tree = dendropy.Tree.get(
+            path=true_tree_file,
+            schema="newick",
+            taxon_namespace=tns,
+            preserve_underscores=True
+        )
+        pdm = tree.phylogenetic_distance_matrix()
+        taxa_objs = [tns.get_taxon(name) for name in names]
+
+        true_mat = np.zeros((n, n), dtype=float)
+        for i in range(n):
+            for j in range(n):
+                if i != j and taxa_objs[i] and taxa_objs[j]:
+                    true_mat[i, j] = pdm(taxa_objs[i], taxa_objs[j])
+
+        triu_i, triu_j = np.triu_indices(n, k=1)
+        d_est = est_mat[triu_i, triu_j]
+        d_true = true_mat[triu_i, triu_j]
+
+        mae = float(np.mean(np.abs(d_est - d_true)))
+        rmse = float(np.sqrt(np.mean((d_est - d_true) ** 2)))
+        bias = float(np.mean(d_est - d_true))
+        corr = float(np.corrcoef(d_est, d_true)[0, 1]) if np.std(d_est) > 1e-9 and np.std(d_true) > 1e-9 else 0.0
+
+        return mae, rmse, bias, corr
+    except Exception as e:
+        sys.stderr.write(f"Warning: Distance metric calculation error: {e}\n")
+        return None, None, None, None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate Tree Topology Accuracy")
     parser.add_argument("--truetree", required=True, help="Path to True Newick Tree file")
@@ -89,6 +163,7 @@ def main() -> None:
         default=float(os.environ.get("ICS_PROP", 0.0)),
         help="ICS proportion (simulation invariant category site ratio)"
     )
+    parser.add_argument("--matrix", help="Path to estimated distance matrix (PHYLIP format)")
     parser.add_argument("--json", help="Path to ML metadata JSON file")
     parser.add_argument("--outcsv", required=True, help="Output summary CSV file")
     args = parser.parse_args()
@@ -138,6 +213,11 @@ def main() -> None:
         ds_distance = compute_shortest_path_edges(est_tree, first_taxon, last_taxon)
         ds_true = compute_shortest_path_edges(true_tree, first_taxon, last_taxon)
 
+    # Distance matrix metrics (if matrix provided)
+    dist_mae, dist_rmse, dist_bias, dist_corr = None, None, None, None
+    if args.matrix:
+        dist_mae, dist_rmse, dist_bias, dist_corr = compute_distance_metrics(args.truetree, args.matrix)
+
     # Load ML metadata if available
     best_model = "N/A"
     gamma_alpha = "N/A"
@@ -168,6 +248,10 @@ def main() -> None:
         "precision": round(precision, 6),
         "ds_distance": ds_distance if ds_distance is not None else "N/A",
         "ds_true": ds_true if ds_true is not None else "N/A",
+        "dist_mae": round(dist_mae, 6) if dist_mae is not None else "N/A",
+        "dist_rmse": round(dist_rmse, 6) if dist_rmse is not None else "N/A",
+        "dist_bias": round(dist_bias, 6) if dist_bias is not None else "N/A",
+        "dist_corr": round(dist_corr, 6) if dist_corr is not None else "N/A",
         "best_model_bic": best_model,
         "gamma_alpha": gamma_alpha
     }
@@ -176,9 +260,10 @@ def main() -> None:
     header = not os.path.exists(args.outcsv)
     df.to_csv(args.outcsv, mode="a", index=False, header=header)
 
+    dist_str = f", dist_MAE={dist_mae:.4f}" if dist_mae is not None else ""
     print(
         f"Evaluated {args.pipeline} (D={args.distance}, L={args.length}, rep={args.replicate}): "
-        f"RCRB={rcrb:.4f}, nRF={nrf:.4f}, RF={rf} (correct={correct_branches}/{true_branches})"
+        f"RCRB={rcrb:.4f}, nRF={nrf:.4f}, RF={rf} (correct={correct_branches}/{true_branches}){dist_str}"
     )
 
 
