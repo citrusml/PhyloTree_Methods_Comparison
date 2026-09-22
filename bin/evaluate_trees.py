@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--ics_prop",
         type=float,
-        default=0.0,
+        default=float(os.environ.get("ICS_PROP", 0.0)),
         help="ICS proportion (simulation invariant category site ratio)"
     )
     parser.add_argument("--json", help="Path to ML metadata JSON file")

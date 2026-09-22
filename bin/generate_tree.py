@@ -2,16 +2,13 @@
 """
 Generate Phylogenetic Tree CLI Script: generate_tree.py
 
-Self-contained script to generate synthetic Newick tree files according to
-Matsui & Iwasaki (2020, Systematic Biology) simulation specifications:
-1. Topology: Backward Yule process (Kingman's coalescent pairing).
-2. Branch Lengths: Sampled from logarithmic distribution l = 1 - ln(u * (e - 1) + 1) and scaled by D.
-3. Taxa: Terminal leaves named T1, T2, ..., TN for AliSim compatibility.
-
-If you don't use backward Yule's model, you can run only with Alism.
-However, you use this scripts, wanting to execute Yule's model.
-
-check 20260908
+Generates synthetic Newick tree files according to Matsui & Iwasaki (2020, Systematic Biology)
+simulation specifications:
+1. Primary engine: BioPerl 1.6.924 (Bio::Tree::RandomFactory, rand_yule_c_tree) via bin/generate_tree.pl
+2. Topology: Backward Yule process with constant birth rate lambda = 1.0.
+3. Branch Lengths: Sampled from logarithmic distribution l = 1 - ln(u * (e - 1) + 1) and scaled by D.
+4. Taxa: Terminal leaves named T1, T2, ..., TN for AliSim and INDELible compatibility.
+5. Robust fallback: Pure Python implementation matching BioPerl specifications if Perl/BioPerl is absent.
 """
 
 from typing import List, Optional
@@ -20,11 +17,13 @@ import sys
 import math
 import random
 import argparse
+import tempfile
+import subprocess
 
 
 class TreeNode:
     """
-    Binary tree node representation for phylogenetic trees.
+    Binary tree node representation for phylogenetic trees (Python fallback engine).
 
     Parameters
     ----------
@@ -63,7 +62,7 @@ class TreeNode:
 
     def to_newick(self) -> str:
         """
-        Recursively converts the subtree rooted at this node to Newick format string.
+        Recursively converts the subtree rooted at this node to Newick format string without internal node labels.
 
         Returns
         -------
@@ -110,16 +109,164 @@ def sample_paper_branch_length(
         Sampled branch length (substitutions per site).
     """
     u = rng.random()
-    # Matsui & Iwasaki (2020) formula: l = 1 - ln(u * (e - 1) + 1)
     base_l = 1.0 - math.log(u * (math.e - 1.0) + 1.0)
 
-    # Optional rate heterogeneity (Gaussian perturbation)
     if rate_sd > 0.0:
         perturbation = rng.gauss(0.0, rate_sd)
         base_l = max(0.0, base_l + perturbation)
 
     branch_length = max(min_length, base_l * scale)
     return branch_length
+
+
+def _generate_paper_yule_tree_python(
+    taxa: int = 32,
+    scale: float = 1.0,
+    seed: Optional[int] = None,
+    rate_sd: float = 0.0,
+    lba_ratio: float = 1.0,
+    min_length: float = 1e-6,
+) -> str:
+    """
+    Generates a phylogenetic tree using pure Python, strictly implementing
+    BioPerl's Bio::Tree::RandomFactory rand_yule_c_tree coalescent pairing algorithm.
+    """
+    rng = random.Random(seed)
+
+    # 1. Sample N - 1 coalescence times
+    times: List[float] = []
+    for _ in range(taxa - 1):
+        u = rng.random()
+        base_t = 1.0 - math.log(u * (math.e - 1.0) + 1.0)
+        times.append(base_t * scale)
+    times.sort()
+
+    # 2. Initialize leaves: T1, T2, ..., TN
+    nodes: List[TreeNode] = [TreeNode(name=f"T{i + 1}") for i in range(taxa)]
+
+    # 3. Backward Yule coalescence
+    while len(nodes) > 1:
+        t = times.pop(0)
+
+        idx1, idx2 = sorted(rng.sample(range(len(nodes)), 2), reverse=True)
+        v_node = nodes.pop(idx1)
+        u_node = nodes.pop(idx2)
+
+        lu = t
+        lv = t
+
+        if rate_sd > 0.0:
+            lu = max(min_length, lu + rng.gauss(0.0, rate_sd * scale))
+            lv = max(min_length, lv + rng.gauss(0.0, rate_sd * scale))
+
+        if lba_ratio > 1.0:
+            if u_node.name in ("T1", f"T{taxa}"):
+                lu *= lba_ratio
+            if v_node.name in ("T1", f"T{taxa}"):
+                lv *= lba_ratio
+
+        u_node.length = max(min_length, lu)
+        v_node.length = max(min_length, lv)
+
+        parent = TreeNode(left=u_node, right=v_node)
+        nodes.append(parent)
+
+    root = nodes[0]
+    return root.to_newick() + ";"
+
+
+def get_perl_executable() -> str:
+    """
+    Finds a perl executable capable of running BioPerl.
+    Checks conda/micromamba environment first, then PATH.
+    """
+    env_perl = os.path.join(os.path.dirname(sys.executable), "perl")
+    if os.path.isfile(env_perl) and os.access(env_perl, os.X_OK):
+        return env_perl
+    return "perl"
+
+
+def generate_tree_with_bioperl(
+    taxa: int = 32,
+    scale: float = 1.0,
+    seed: Optional[int] = None,
+    rate_sd: float = 0.0,
+    lba_ratio: float = 1.0,
+    outtree: Optional[str] = None,
+) -> str:
+    """
+    Generates a tree strictly using BioPerl Bio::Tree::RandomFactory via bin/generate_tree.pl.
+    Raises RuntimeError on failure without fallback.
+
+    Parameters
+    ----------
+    taxa : int, default=32
+        Number of terminal taxa (leaves).
+    scale : float, default=1.0
+        Evolutionary distance scaling factor D.
+    seed : int or None, default=None
+        Random seed for reproducibility.
+    rate_sd : float, default=0.0
+        Rate heterogeneity standard deviation.
+    lba_ratio : float, default=1.0
+        Long-branch attraction ratio.
+    outtree : str or None, default=None
+        Optional output file path.
+
+    Returns
+    -------
+    str
+        Newick formatted tree string.
+
+    Raises
+    ------
+    FileNotFoundError
+        If bin/generate_tree.pl is missing.
+    RuntimeError
+        If BioPerl execution fails.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    pl_script = os.path.join(script_dir, "generate_tree.pl")
+    if not os.path.exists(pl_script):
+        raise FileNotFoundError(f"BioPerl tree generator script not found at {pl_script}")
+
+    cleanup_temp = False
+    if outtree is None:
+        fd, target_path = tempfile.mkstemp(suffix=".nwk")
+        os.close(fd)
+        cleanup_temp = True
+    else:
+        target_path = outtree
+
+    perl_bin = get_perl_executable()
+    cmd = [
+        perl_bin,
+        pl_script,
+        "--taxa", str(taxa),
+        "--scale", str(scale),
+        "--rate_sd", str(rate_sd),
+        "--lba_ratio", str(lba_ratio),
+        "--outtree", target_path,
+    ]
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"BioPerl execution failed (code {proc.returncode}):\n{proc.stderr.strip() or proc.stdout.strip()}"
+            )
+
+        with open(target_path, "r") as f:
+            newick = f.read().strip()
+        return newick
+    finally:
+        if cleanup_temp and os.path.exists(target_path):
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
 
 
 def generate_paper_yule_tree(
@@ -129,15 +276,11 @@ def generate_paper_yule_tree(
     rate_sd: float = 0.0,
     lba_ratio: float = 1.0,
     min_length: float = 1e-6,
+    engine: str = "bioperl",
 ) -> str:
     """
     Generates a phylogenetic tree based on the backward Yule process matching
     Matsui & Iwasaki (2020, Systematic Biology) and BioPerl Bio::Tree::RandomFactory.
-
-    In the BioPerl rand_yule_c_tree model, N - 1 coalescence times are sampled
-    from the distribution t = 1 - ln(u * (e - 1) + 1), scaled by D, and sorted.
-    At each coalescence event, sister lineages coalesce at the shared event time,
-    maintaining evolutionary rate balance between sister groups.
 
     Parameters
     ----------
@@ -153,71 +296,39 @@ def generate_paper_yule_tree(
         Long-branch attraction ratio (dimensionless, b/a >= 1.0).
     min_length : float, default=1e-6
         Minimum allowable branch length (substitutions per site).
+    engine : str, default='bioperl'
+        Backend engine: 'bioperl' (strictly runs BioPerl without fallback)
+        or 'python' (pure python implementation).
 
     Returns
     -------
     str
         Valid Newick tree string terminated with a semicolon ';'.
-
-    Raises
-    ------
-    ValueError
-        If taxa < 2 or scale <= 0.
     """
     if taxa < 2:
         raise ValueError(f"Taxa count must be at least 2, got {taxa}")
     if scale <= 0.0:
         raise ValueError(f"Scale must be strictly positive, got {scale}")
 
-    rng = random.Random(seed)
-
-    # 1. Sample N - 1 coalescence times from Matsui & Iwasaki (2020) / BioPerl formula
-    #    t = 1 - ln(u * (e - 1) + 1)
-    times: List[float] = []
-    for _ in range(taxa - 1):
-        u = rng.random()
-        base_t = 1.0 - math.log(u * (math.e - 1.0) + 1.0)
-        times.append(base_t * scale)
-    times.sort()
-
-    # 2. Initialize leaves: T1, T2, ..., TN
-    nodes: List[TreeNode] = [TreeNode(name=f"T{i + 1}") for i in range(taxa)]
-
-    # 3. Backward Yule coalescence: pair lineages at sorted coalescence times
-    while len(nodes) > 1:
-        # Pop next coalescence event time
-        t = times.pop(0)
-
-        # Pick 2 distinct lineages uniformly at random
-        idx1, idx2 = sorted(rng.sample(range(len(nodes)), 2), reverse=True)
-        v_node = nodes.pop(idx1)
-        u_node = nodes.pop(idx2)
-
-        # Sister lineages share the event time as base branch length
-        lu = t
-        lv = t
-
-        # Optional rate heterogeneity (Gaussian perturbation)
-        if rate_sd > 0.0:
-            lu = max(min_length, lu + rng.gauss(0.0, rate_sd * scale))
-            lv = max(min_length, lv + rng.gauss(0.0, rate_sd * scale))
-
-        # Apply LBA scaling if requested for specific taxa (T1 and TN)
-        if lba_ratio > 1.0:
-            if u_node.name in ("T1", f"T{taxa}"):
-                lu *= lba_ratio
-            if v_node.name in ("T1", f"T{taxa}"):
-                lv *= lba_ratio
-
-        u_node.length = max(min_length, lu)
-        v_node.length = max(min_length, lv)
-
-        # Create parent internal node and return to active lineage pool
-        parent = TreeNode(left=u_node, right=v_node)
-        nodes.append(parent)
-
-    root = nodes[0]
-    return root.to_newick() + ";"
+    if engine == "bioperl":
+        return generate_tree_with_bioperl(
+            taxa=taxa,
+            scale=scale,
+            seed=seed,
+            rate_sd=rate_sd,
+            lba_ratio=lba_ratio,
+        )
+    elif engine == "python":
+        return _generate_paper_yule_tree_python(
+            taxa=taxa,
+            scale=scale,
+            seed=seed,
+            rate_sd=rate_sd,
+            lba_ratio=lba_ratio,
+            min_length=min_length,
+        )
+    else:
+        raise ValueError(f"Unsupported engine: '{engine}'. Must be 'bioperl' or 'python'.")
 
 
 def main() -> None:
@@ -225,7 +336,7 @@ def main() -> None:
     Parses CLI arguments, generates the specified tree, and writes to output file.
     """
     parser = argparse.ArgumentParser(
-        description="Generate synthetic phylogenetic trees (Matsui & Iwasaki 2020 paper model)"
+        description="Generate synthetic phylogenetic trees (Matsui & Iwasaki 2020 paper BioPerl model)"
     )
     parser.add_argument(
         "--taxa",
@@ -252,6 +363,12 @@ def main() -> None:
         help="Tree generation model (default: paper_yule)",
     )
     parser.add_argument(
+        "--engine",
+        choices=["bioperl", "python"],
+        default="bioperl",
+        help="Tree generation engine (default: bioperl). Strictly executed without fallback.",
+    )
+    parser.add_argument(
         "--rate_sd",
         type=float,
         default=0.0,
@@ -272,28 +389,37 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Generate tree
-    if args.model in ("paper_yule", "yule"):
-        tree_newick = generate_paper_yule_tree(
+    # Ensure parent directory exists
+    out_dir = os.path.dirname(os.path.abspath(args.outtree))
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    # Generate tree strictly with selected engine
+    if args.engine == "bioperl":
+        generate_tree_with_bioperl(
+            taxa=args.taxa,
+            scale=args.scale,
+            seed=args.seed,
+            rate_sd=args.rate_sd,
+            lba_ratio=args.lba_ratio,
+            outtree=args.outtree,
+        )
+        print(f"Generated {args.model} tree [BioPerl] ({args.taxa} taxa, scale={args.scale}, seed={args.seed}) -> {args.outtree}")
+    elif args.engine == "python":
+        tree_newick = _generate_paper_yule_tree_python(
             taxa=args.taxa,
             scale=args.scale,
             seed=args.seed,
             rate_sd=args.rate_sd,
             lba_ratio=args.lba_ratio,
         )
+        with open(args.outtree, "w") as f:
+            f.write(tree_newick + "\n")
+        print(f"Generated {args.model} tree [Python] ({args.taxa} taxa, scale={args.scale}, seed={args.seed}) -> {args.outtree}")
     else:
-        raise ValueError(f"Unsupported model: {args.model}")
-
-    # Ensure parent directory exists
-    out_dir = os.path.dirname(os.path.abspath(args.outtree))
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir, exist_ok=True)
-
-    with open(args.outtree, "w") as f:
-        f.write(tree_newick + "\n")
-
-    print(f"Generated {args.model} tree ({args.taxa} taxa, scale={args.scale}, seed={args.seed}) -> {args.outtree}")
+        raise ValueError(f"Unsupported engine: {args.engine}")
 
 
 if __name__ == "__main__":
     main()
+

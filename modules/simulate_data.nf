@@ -35,6 +35,11 @@ process SIMULATE_DATA {
     def indel_p2 = m_parts.length > 2 ? m_parts[2] : '50'
     def indelible_indel_cmd = "${indel_type} ${indel_p1} ${indel_p2}"
 
+    // ICS (Invariant Category Sites) model definition support
+    def is_ics = params.model ? params.model.toString().toUpperCase().contains('ICS') : false
+    def ics_mdef_path = params.containsKey('ics_model_file') ? params.ics_model_file : "${moduleDir}/../models/ics_model.nex"
+    def mdef_arg = (is_ics || params.containsKey('ics_model_file')) ? "--mdef ${ics_mdef_path} --seqtype AA" : ""
+
     """
     if [ "${simulator}" = "indelible" ]; then
         INDELIBLE_BIN=\$(which indelible 2>/dev/null || echo "${moduleDir}/../bin/indelible")
@@ -154,6 +159,7 @@ sys.exit(0 if (valid and count == taxa) else 1)
                 # AliSim 実行ブロック
                 if [ "${is_paper_yule}" = "true" ]; then
                     if \${IQTREE_BIN} --alisim sim_\${rep} \\
+                        ${mdef_arg} \\
                         -m "${model_str}" \\
                         --length ${len} \\
                         -t true_tree_\${rep}.nwk \\
@@ -193,6 +199,7 @@ sys.exit(0 if (valid and count == taxa) else 1)
                     fi
                 else
                     if \${IQTREE_BIN} --alisim sim_\${rep} \\
+                        ${mdef_arg} \\
                         -m "${model_str}" \\
                         --length ${len} \\
                         -t "RANDOM{bd{${params.birth_rate}/${params.death_rate}}/${params.taxa}}" \\
