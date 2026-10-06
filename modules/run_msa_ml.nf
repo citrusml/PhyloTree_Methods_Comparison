@@ -22,12 +22,14 @@ process RUN_MSA_ML {
     path("msa_ml_meta_*.json")
 
     script:
+    def model_arg = params.containsKey('iqtree_model') ? params.iqtree_model : 'MFP'
     """
     for rep in \$(seq ${rep_start} ${rep_end}); do
         python3 ${moduleDir}/../bin/run_msa_ml.py \\
             --msa msa_\${rep}.fasta \\
             --outtree msa_ml_\${rep}.nwk \\
             --outjson msa_ml_meta_\${rep}.json \\
+            --model "${model_arg}" \\
             --threads ${task.cpus}
 
         python3 ${moduleDir}/../bin/evaluate_trees.py \\

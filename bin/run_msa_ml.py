@@ -45,6 +45,11 @@ def parse_iqtree_log(iqtree_log_file):
     bic_match = re.search(r"Best-fit model according to BIC:\s*([^\s\n]+)", content)
     if bic_match:
         metadata["best_model_bic"] = bic_match.group(1)
+    else:
+        # Search for fixed substitution model
+        sub_match = re.search(r"Model of substitution:\s*([^\s\n]+)", content)
+        if sub_match:
+            metadata["best_model_bic"] = sub_match.group(1)
 
     aic_match = re.search(r"Best-fit model according to AIC:\s*([^\s\n]+)", content)
     if aic_match:
@@ -86,6 +91,7 @@ def main():
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
     parser.add_argument("--outmsa", help="Output MAFFT MSA file (if MAFFT is run)")
     parser.add_argument("--outjson", help="Output JSON metadata file")
+    parser.add_argument("--model", default="MFP", help="IQ-TREE amino acid substitution model (default: MFP, e.g. WAG+G4)")
     parser.add_argument("--bootstrap", type=int, default=0, help="Ultrafast bootstrap replicates (-B, default: 0 = disabled)")
     parser.add_argument("--threads", type=int, default=1, help="Number of CPU threads for IQ-TREE 2 (-T)")
     args = parser.parse_args()
@@ -131,11 +137,11 @@ def main():
     tree_file = prefix + ".treefile"
     iq_file = prefix + ".iqtree"
 
-    # 3. Build IQ-TREE command (Pure ML Tree inference with ModelFinder, no bootstrap)
+    # 3. Build IQ-TREE command
     cmd = [
         iqtree_cmd,
         "-s", tmp_msa,
-        "-m", "MFP",
+        "-m", args.model,
         "--prefix", prefix,
         "--redo",
         "-T", str(args.threads)
