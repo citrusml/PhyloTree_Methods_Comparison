@@ -29,6 +29,7 @@ process RUN_TRUE_MSA_NJ {
             --outtree true_msa_nj_\${rep}.nwk \\
             --outmatrix true_msa_matrix_\${rep}.phylip \\
             --dist_model ${params.dist_model} \\
+            --alpha ${params.alpha} \\
             --tool ${params.nj_tool}
 
         python3 ${moduleDir}/../bin/evaluate_trees.py \\

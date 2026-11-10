@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 MSA + NJ Control Pipeline Script
-Runs MAFFT alignment, then applies the EXACT SAME gap-eliminated Poisson distance
-calculation module as PWA to construct the distance matrix, and infers the NJ tree using RapidNJ or FastME.
+Runs MAFFT alignment, then calculates the evolutionary distance matrix using
+Poisson, Gamma-Poisson, or paper-exact WAG+Gamma4 ML distance (pairwise or
+complete gap deletion, matching phangorn::dist.ml in Matsui & Iwasaki 2020),
+and infers the NJ tree using RapidNJ or FastME.
 """
 
 from __future__ import annotations
@@ -11,14 +13,31 @@ import sys
 import os
 import argparse
 import subprocess
+from typing import List
 from Bio import SeqIO
 
-# Import distance calculation and NJ execution from run_pwa_nj
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from run_pwa_nj import calculate_distance, run_nj_tool
+# Add project root and bin directory to sys.path
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_BIN_DIR, ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+if _BIN_DIR not in sys.path:
+    sys.path.insert(0, _BIN_DIR)
 
-def run_mafft(in_fasta, out_msa):
-    """Runs MAFFT with --threadit 0 for reproducible MSA generation."""
+from run_pwa_nj import calculate_distance, run_nj_tool
+from src.paper_distance import apply_complete_gap_deletion
+
+def run_mafft(in_fasta: str, out_msa: str) -> None:
+    """
+    Runs MAFFT with --threadit 0 for reproducible MSA generation.
+
+    Parameters
+    ----------
+    in_fasta : str
+        Path to input unaligned FASTA file.
+    out_msa : str
+        Path to output aligned MSA FASTA file.
+    """
     try:
         cmd = ["mafft", "--threadit", "0", "--auto", in_fasta]
         with open(out_msa, "w") as out_f:
@@ -28,14 +47,19 @@ def run_mafft(in_fasta, out_msa):
     except FileNotFoundError:
         raise RuntimeError("MAFFT executable 'mafft' was not found in PATH. Please ensure mafft is installed.")
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="MSA+NJ Control Pipeline Execution")
     parser.add_argument("--fasta", help="Input unaligned FASTA sequence file")
     parser.add_argument("--msa", help="Input pre-aligned MSA FASTA file (skips MAFFT if provided)")
     parser.add_argument("--outtree", required=True, help="Output Newick tree file")
     parser.add_argument("--outmsa", help="Output MAFFT MSA file (if MAFFT is run)")
     parser.add_argument("--outmatrix", help="Output PHYLIP distance matrix file")
-    parser.add_argument("--dist_model", choices=["poisson", "gamma_poisson"], default="poisson", help="Distance model (default: poisson)")
+    parser.add_argument(
+        "--dist_model",
+        choices=["poisson", "gamma_poisson", "wag_gamma", "wag_gamma_complete"],
+        default="poisson",
+        help="Distance model (default: poisson)"
+    )
     parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha (default: 1.0)")
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
     args = parser.parse_args()
@@ -53,14 +77,25 @@ def main():
     # 2. Parse MSA
     msa_records = list(SeqIO.parse(tmp_msa_file, "fasta"))
     names = [rec.id for rec in msa_records]
-    aligned_seqs = [str(rec.seq) for rec in msa_records]
+    aligned_seqs: List[str] = [str(rec.seq) for rec in msa_records]
     N = len(names)
 
-    # 3. Calculate distance matrix using PWA-identical Poisson formula
+    # Optional complete gap deletion across all MSA columns (NJ_MSA_c, exclude='all')
+    effective_model = args.dist_model
+    if args.dist_model == "wag_gamma_complete":
+        aligned_seqs = apply_complete_gap_deletion(aligned_seqs)
+        effective_model = "wag_gamma"
+
+    # 3. Calculate distance matrix
     dist_matrix = [[0.0] * N for _ in range(N)]
     for i in range(N):
         for j in range(i + 1, N):
-            d = calculate_distance(aligned_seqs[i], aligned_seqs[j], dist_model=args.dist_model, alpha=args.alpha)
+            d = calculate_distance(
+                aligned_seqs[i],
+                aligned_seqs[j],
+                dist_model=effective_model,
+                alpha=args.alpha,
+            )
             dist_matrix[i][j] = d
             dist_matrix[j][i] = d
 

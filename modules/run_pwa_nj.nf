@@ -22,6 +22,8 @@ process RUN_PWA_NJ {
     path("pwa_matrix_*.phylip")
 
     script:
+    def psa_dist_model = params.containsKey('psa_dist_model') ? params.psa_dist_model : params.dist_model
+    def sensitivity    = params.containsKey('gs_sensitivity') ? params.gs_sensitivity : 7.5
     """
     for rep in \$(seq ${rep_start} ${rep_end}); do
         python3 ${moduleDir}/../bin/run_pwa_nj.py \\
@@ -30,7 +32,9 @@ process RUN_PWA_NJ {
             --outmatrix pwa_matrix_\${rep}.phylip \\
             --gap_open ${params.gap_open} \\
             --gap_extend ${params.gap_extend} \\
-            --dist_model ${params.dist_model} \\
+            --dist_model ${psa_dist_model} \\
+            --alpha ${params.alpha} \\
+            --sensitivity ${sensitivity} \\
             --tool ${params.nj_tool} \\
             --threads ${task.cpus}
 

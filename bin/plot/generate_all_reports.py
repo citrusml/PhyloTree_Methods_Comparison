@@ -44,9 +44,13 @@ plt.rcParams.update({
 
 PIPELINE_COLORS = {
     "PWA+NJ": "#1f77b4",       # Blue
+    "MMSEQS+NJ": "#0055aa",    # Deep Royal Blue (MMseqs2 Pairwise Similarity + NJ)
     "MSA+NJ": "#ff7f0e",       # Orange
     "MSA+ML": "#2ca02c",       # Green (IQ-TREE 2)
     "MSA+RAXML": "#006400",    # Dark Green (RAxML -f d)
+    "MSA_LINSI+NJ": "#ff9896", # Coral (MAFFT L-INS-i + NJ)
+    "MSA_LINSI+ML": "#98df8a", # Light Green (MAFFT L-INS-i + IQ-TREE 2)
+    "MSA_LINSI+RAXML": "#2e8b57", # Sea Green (MAFFT L-INS-i + RAxML -f d)
     "MSA+BI": "#d62728",       # Red (MrBayes Bayesian Inference)
     "GS": "#9467bd",           # Purple (Matsui & Iwasaki 2020 Graph Splitting)
     "TRUE_PWA+NJ": "#17becf",  # Cyan

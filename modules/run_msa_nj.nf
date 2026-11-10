@@ -22,13 +22,15 @@ process RUN_MSA_NJ {
     path("msa_matrix_*.phylip")
 
     script:
+    def msa_dist_model = params.containsKey('msa_dist_model') ? params.msa_dist_model : params.dist_model
     """
     for rep in \$(seq ${rep_start} ${rep_end}); do
         python3 ${moduleDir}/../bin/run_msa_nj.py \\
             --msa msa_\${rep}.fasta \\
             --outtree msa_nj_\${rep}.nwk \\
             --outmatrix msa_matrix_\${rep}.phylip \\
-            --dist_model ${params.dist_model} \\
+            --dist_model ${msa_dist_model} \\
+            --alpha ${params.alpha} \\
             --tool ${params.nj_tool}
 
         python3 ${moduleDir}/../bin/evaluate_trees.py \\

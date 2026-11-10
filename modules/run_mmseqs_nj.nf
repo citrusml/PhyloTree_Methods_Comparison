@@ -25,8 +25,9 @@ process RUN_MMSEQS_NJ {
     path("mmseqs_meta_*.json")
 
     script:
-    def nj_tool = params.containsKey('nj_tool') ? params.nj_tool : 'rapidnj'
+    def nj_tool     = params.containsKey('nj_tool') ? params.nj_tool : 'rapidnj'
     def sensitivity = params.containsKey('gs_sensitivity') ? params.gs_sensitivity : 7.5
+    def mmseqs_dist = params.containsKey('mmseqs_dist_model') ? params.mmseqs_dist_model : 'log'
     """
     for rep in \$(seq ${rep_start} ${rep_end}); do
         python3 ${moduleDir}/../bin/run_mmseqs_nj.py \\
@@ -34,7 +35,7 @@ process RUN_MMSEQS_NJ {
             --outtree mmseqs_nj_\${rep}.nwk \\
             --outmatrix mmseqs_matrix_\${rep}.phylip \\
             --outjson mmseqs_meta_\${rep}.json \\
-            --dist_model log \\
+            --dist_model ${mmseqs_dist} \\
             --tool ${nj_tool} \\
             --sensitivity ${sensitivity} \\
             --threads ${task.cpus}

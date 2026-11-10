@@ -13,9 +13,21 @@ import os
 import math
 import argparse
 import subprocess
+from typing import List, Optional, Tuple
 import numpy as np
 from Bio import SeqIO
 from Bio.Align import PairwiseAligner, substitution_matrices
+
+# Add project root to sys.path so src.paper_distance can be imported
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from src.paper_distance import (
+    calculate_wag_gamma_ml_distance,
+    compute_mmseqs_similarity_matrix,
+    similarity_to_distance_matrix,
+)
 
 # Load standard BLOSUM62 substitution matrix
 try:
@@ -172,31 +184,37 @@ def calculate_distance(
     min_overlap: int = 10
 ) -> float:
     """
-    Dispatches to either Poisson or Gamma-Poisson distance calculation.
+    Dispatches pairwise distance calculation across Poisson, Gamma-Poisson, and WAG+Gamma4 ML models.
 
     Parameters
     ----------
     aligned1 : str or numpy.ndarray
-        First aligned sequence.
+        First aligned sequence (amino acid characters, unitless).
     aligned2 : str or numpy.ndarray
-        Second aligned sequence.
+        Second aligned sequence (amino acid characters, unitless).
     dist_model : str, default="poisson"
-        Distance model ('poisson' or 'gamma_poisson').
+        Distance model ('poisson', 'gamma_poisson', or 'wag_gamma').
     alpha : float, default=1.0
-        Gamma shape parameter alpha (used when dist_model='gamma_poisson').
+        Gamma shape parameter alpha (unitless).
     min_overlap : int, default=10
-        Minimum required overlapping residue sites.
+        Minimum required overlapping residue sites (residues).
 
     Returns
     -------
     float
-        Estimated evolutionary distance d (unitless).
+        Estimated evolutionary distance d (substitutions/site, unitless).
     """
+    if dist_model == "wag_gamma":
+        return calculate_wag_gamma_ml_distance(
+            aligned1, aligned2, alpha=alpha, min_overlap=min_overlap
+        )
     if dist_model == "gamma_poisson":
-        return calculate_gamma_poisson_distance(aligned1, aligned2, alpha=alpha, min_overlap=min_overlap)
+        return calculate_gamma_poisson_distance(
+            aligned1, aligned2, alpha=alpha, min_overlap=min_overlap
+        )
     return calculate_poisson_distance(aligned1, aligned2, min_overlap=min_overlap)
 
-def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
+def run_nj_tool(matrix_file: str, outtree_file: str, tool: str = "rapidnj") -> None:
     """
     Runs RapidNJ or FastME to infer NJ tree.
     Falls back to Biopython's DistanceTreeConstructor if neither executable is found.
@@ -245,14 +263,16 @@ def run_nj_tool(matrix_file, outtree_file, tool="rapidnj"):
     except Exception as e:
         raise RuntimeError(f"NJ inference failed with {tool} and Biopython fallback: {e}")
 
-def _compute_single_pair(args_tuple):
+def _compute_single_pair(
+    args_tuple: Tuple[int, int, str, str, float, float, str, float]
+) -> Tuple[int, int, float]:
     """Worker function for parallel pairwise distance computation."""
     i, j, s1, s2, gap_open, gap_extend, dist_model, alpha = args_tuple
     al1, al2 = needleman_wunsch(s1, s2, gap_open=gap_open, gap_extend=gap_extend)
     d = calculate_distance(al1, al2, dist_model=dist_model, alpha=alpha)
     return (i, j, d)
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="PWA+NJ Pipeline Execution")
     parser.add_argument("--fasta", help="Input FASTA sequence file")
     parser.add_argument("--matrix", help="Input precomputed PHYLIP distance matrix (skips alignment if provided)")
@@ -260,8 +280,15 @@ def main():
     parser.add_argument("--outmatrix", help="Output PHYLIP distance matrix file")
     parser.add_argument("--gap_open", type=float, default=10.0, help="Gap open penalty (default: 10.0)")
     parser.add_argument("--gap_extend", type=float, default=0.5, help="Gap extension penalty (default: 0.5)")
-    parser.add_argument("--dist_model", choices=["poisson", "gamma_poisson"], default="poisson", help="Distance model (default: poisson)")
-    parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha for Gamma-Poisson distance (default: 1.0)")
+    parser.add_argument(
+        "--dist_model",
+        choices=["poisson", "gamma_poisson", "wag_gamma", "mmseqs_linear", "mmseqs_log"],
+        default="poisson",
+        help="Distance model (default: poisson)"
+    )
+    parser.add_argument("--alpha", type=float, default=1.0, help="Gamma shape parameter alpha (default: 1.0)")
+    parser.add_argument("--sensitivity", type=float, default=7.5, help="MMseqs2 sensitivity -s for mmseqs_* models (default: 7.5)")
+    parser.add_argument("--epsilon", type=float, default=1e-4, help="Epsilon floor for mmseqs_log distance (default: 1e-4)")
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
     parser.add_argument("--threads", type=int, default=1, help="Number of parallel CPU workers for pairwise alignments (default: 1)")
     args = parser.parse_args()
@@ -275,37 +302,53 @@ def main():
     if not args.fasta:
         parser.error("Either --fasta or --matrix must be provided.")
 
-    records = list(SeqIO.parse(args.fasta, "fasta"))
-    names = [rec.id for rec in records]
-    seqs = [str(rec.seq) for rec in records]
-    N = len(names)
-
-    dist_matrix = [[0.0] * N for _ in range(N)]
-
-    if args.threads > 1 and N >= 16:
-        # Multi-process parallel computation for large taxa counts
-        pair_tasks = [
-            (i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha)
-            for i in range(N)
-            for j in range(i + 1, N)
-        ]
-        from concurrent.futures import ProcessPoolExecutor
-        with ProcessPoolExecutor(max_workers=args.threads) as executor:
-            results = executor.map(_compute_single_pair, pair_tasks, chunksize=max(1, len(pair_tasks) // (args.threads * 4)))
-            for i, j, d in results:
-                dist_matrix[i][j] = d
-                dist_matrix[j][i] = d
+    if args.dist_model in ("mmseqs_linear", "mmseqs_log"):
+        # Matsui & Iwasaki (2020) exact NJ_PSA mode:
+        # All-to-all MMseqs2 (-s 7.5 -e 10) symmetrical relative sequence similarity score w_ij
+        names, w_mat, _ = compute_mmseqs_similarity_matrix(
+            args.fasta,
+            sensitivity=args.sensitivity,
+            threads=args.threads,
+        )
+        d_mat_np = similarity_to_distance_matrix(
+            w_mat,
+            dist_model=args.dist_model,
+            epsilon=args.epsilon,
+        )
+        N = len(names)
+        dist_matrix = d_mat_np.tolist()
     else:
-        # Direct C-accelerated single-process computation (avoids IPC/serialization overhead)
-        aligner = get_aligner(gap_open=args.gap_open, gap_extend=args.gap_extend)
-        for i in range(N):
-            s1 = seqs[i]
-            for j in range(i + 1, N):
-                s2 = seqs[j]
-                al1, al2 = needleman_wunsch(s1, s2, aligner=aligner, gap_open=args.gap_open, gap_extend=args.gap_extend)
-                d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
-                dist_matrix[i][j] = d
-                dist_matrix[j][i] = d
+        records = list(SeqIO.parse(args.fasta, "fasta"))
+        names = [rec.id for rec in records]
+        seqs = [str(rec.seq) for rec in records]
+        N = len(names)
+
+        dist_matrix = [[0.0] * N for _ in range(N)]
+
+        if args.threads > 1 and N >= 16:
+            # Multi-process parallel computation for large taxa counts
+            pair_tasks = [
+                (i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha)
+                for i in range(N)
+                for j in range(i + 1, N)
+            ]
+            from concurrent.futures import ProcessPoolExecutor
+            with ProcessPoolExecutor(max_workers=args.threads) as executor:
+                results = executor.map(_compute_single_pair, pair_tasks, chunksize=max(1, len(pair_tasks) // (args.threads * 4)))
+                for i, j, d in results:
+                    dist_matrix[i][j] = d
+                    dist_matrix[j][i] = d
+        else:
+            # Direct C-accelerated single-process computation (avoids IPC/serialization overhead)
+            aligner = get_aligner(gap_open=args.gap_open, gap_extend=args.gap_extend)
+            for i in range(N):
+                s1 = seqs[i]
+                for j in range(i + 1, N):
+                    s2 = seqs[j]
+                    al1, al2 = needleman_wunsch(s1, s2, aligner=aligner, gap_open=args.gap_open, gap_extend=args.gap_extend)
+                    d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
+                    dist_matrix[i][j] = d
+                    dist_matrix[j][i] = d
 
     # Write PHYLIP distance matrix
     matrix_str = f"   {N}\n"
