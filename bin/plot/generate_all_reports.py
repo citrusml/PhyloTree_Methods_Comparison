@@ -29,6 +29,8 @@ from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any, Union
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -500,9 +502,15 @@ def generate_sss_analysis(df, outdir):
         ax.set_title(title, fontsize=12, fontweight="bold", pad=12)
         ax.set_xlabel(r"Average Sequence Similarity Score ($\bar{w}$)", fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_xlim(-0.01, min(0.65, max(0.2, df["sss_mean"].max() + 0.02)))
+        max_sss = df["sss_mean"].dropna().max()
+        xlim_r = 0.65
+        if pd.notna(max_sss):
+            xlim_r = min(0.65, max(0.2, float(max_sss) + 0.02))
+        ax.set_xlim(-0.01, xlim_r)
         ax.grid(True, linestyle="--", alpha=0.5)
-        ax.legend(fontsize=9, loc="best", framealpha=0.9)
+        handles, labels = ax.get_legend_handles_labels()
+        if labels:
+            ax.legend(fontsize=9, loc="best", framealpha=0.9)
 
     plt.tight_layout()
     plot_path1 = os.path.join(outdir, "nrf_vs_sss_curves.png")
@@ -536,8 +544,14 @@ def generate_sss_analysis(df, outdir):
     ax.set_title("Distribution of Sequence Similarity Score (SSS) across Evolutionary Distances", fontsize=13, fontweight="bold", pad=15)
     ax.set_xlabel("Evolutionary Distance D (substitutions/site)", fontsize=11)
     ax.set_ylabel(r"Average Sequence Similarity Score ($\bar{w}$)", fontsize=11)
-    ax.set_ylim(-0.06, max(0.5, rep_level["sss_mean"].max() + 0.05))
-    ax.legend(loc="upper right", fontsize=9)
+    max_sss_rep = rep_level["sss_mean"].dropna().max()
+    ylim_top = 0.5
+    if pd.notna(max_sss_rep):
+        ylim_top = max(0.5, float(max_sss_rep) + 0.05)
+    ax.set_ylim(-0.06, ylim_top)
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(loc="upper right", fontsize=9)
     plt.tight_layout()
     plot_path2 = os.path.join(outdir, "sss_distribution_by_distance.png")
     plt.savefig(plot_path2, dpi=300)
@@ -658,7 +672,9 @@ def generate_alignment_and_error_propagation_analysis(df, outdir):
             ax.set_xlabel("MSA Sum-of-Pairs (SP) Score", fontsize=11)
             ax.set_ylabel("Distance MAE (|d̂_ij - d_ij|)", fontsize=11)
             ax.grid(True, linestyle="--", alpha=0.5)
-            ax.legend(fontsize=10)
+            h, l = ax.get_legend_handles_labels()
+            if l:
+                ax.legend(fontsize=10)
             plt.tight_layout()
             out2 = os.path.join(outdir, "sp_score_vs_mae.png")
             plt.savefig(out2, dpi=300)
@@ -694,14 +710,18 @@ def generate_alignment_and_error_propagation_analysis(df, outdir):
     ax1.set_ylabel("Normalized RF Distance", fontsize=11)
     ax1.set_ylim(-0.05, 1.05)
     ax1.grid(True, linestyle="--", alpha=0.5)
-    ax1.legend(fontsize=10)
+    h1, l1 = ax1.get_legend_handles_labels()
+    if l1:
+        ax1.legend(fontsize=10)
 
     ax2.set_title("Tree Accuracy (RCRB) vs MSA SP Score", fontsize=12, fontweight="bold")
     ax2.set_xlabel("Sum-of-Pairs (SP) Score", fontsize=11)
     ax2.set_ylabel("Correct Branch Ratio (RCRB)", fontsize=11)
     ax2.set_ylim(-0.05, 1.05)
     ax2.grid(True, linestyle="--", alpha=0.5)
-    ax2.legend(fontsize=10)
+    h2, l2 = ax2.get_legend_handles_labels()
+    if l2:
+        ax2.legend(fontsize=10)
 
     plt.tight_layout()
     out3 = os.path.join(outdir, "sp_score_vs_tree_accuracy.png")
@@ -738,7 +758,9 @@ def generate_alignment_and_error_propagation_analysis(df, outdir):
         ax_b.set_xlabel("SP Score", fontsize=10)
         ax_b.set_ylabel("Distance MAE", fontsize=10)
         ax_b.grid(True, linestyle="--", alpha=0.5)
-        ax_b.legend(fontsize=9)
+        hb, lb = ax_b.get_legend_handles_labels()
+        if lb:
+            ax_b.legend(fontsize=9)
     else:
         ax_b.text(0.5, 0.5, "Distance MAE Not Available", ha="center", va="center", transform=ax_b.transAxes)
 
@@ -758,7 +780,9 @@ def generate_alignment_and_error_propagation_analysis(df, outdir):
         ax_c.set_xlabel("Distance MAE", fontsize=10)
         ax_c.set_ylabel("nRF Distance", fontsize=10)
         ax_c.grid(True, linestyle="--", alpha=0.5)
-        ax_c.legend(fontsize=9)
+        hc, lc = ax_c.get_legend_handles_labels()
+        if lc:
+            ax_c.legend(fontsize=9)
     else:
         ax_c.text(0.5, 0.5, "Distance MAE Not Available", ha="center", va="center", transform=ax_c.transAxes)
 
@@ -779,7 +803,9 @@ def generate_alignment_and_error_propagation_analysis(df, outdir):
     ax_d.set_xlabel("SP Score", fontsize=10)
     ax_d.set_ylabel("nRF Distance", fontsize=10)
     ax_d.grid(True, linestyle="--", alpha=0.5)
-    ax_d.legend(fontsize=9)
+    hd, ld = ax_d.get_legend_handles_labels()
+    if ld:
+        ax_d.legend(fontsize=9)
 
     plt.suptitle("Phylogenetic Error Propagation Cascade: Alignment -> Distance -> Tree Topology", fontsize=14, fontweight="bold", y=0.995)
     plt.tight_layout()
@@ -1662,14 +1688,37 @@ def main():
 
         if not df.empty and "nrf_distance" in df.columns:
             print(f"Generating phylogenetic benchmark reports from '{csv_file}' ({len(df)} records)...")
-            generate_regime_map(df, args.outdir)
-            generate_method_comparisons(df, args.outdir)
-            generate_boxplots(df, args.outdir)
-            generate_summary_table(df, args.outdir)
+            try:
+                generate_regime_map(df, args.outdir)
+            except Exception as e:
+                print(f"[Warning] Failed to generate regime map: {e}")
+
+            try:
+                generate_method_comparisons(df, args.outdir)
+            except Exception as e:
+                print(f"[Warning] Failed to generate method comparisons: {e}")
+
+            try:
+                generate_boxplots(df, args.outdir)
+            except Exception as e:
+                print(f"[Warning] Failed to generate boxplots: {e}")
+
+            try:
+                generate_summary_table(df, args.outdir)
+            except Exception as e:
+                print(f"[Warning] Failed to generate summary table: {e}")
+
             if "sss_mean" in df.columns and df["sss_mean"].notna().any():
-                generate_sss_analysis(df, args.outdir)
+                try:
+                    generate_sss_analysis(df, args.outdir)
+                except Exception as e:
+                    print(f"[Warning] Failed to generate SSS analysis: {e}")
+
             if "sp_score" in df.columns and df["sp_score"].notna().any():
-                generate_alignment_and_error_propagation_analysis(df, args.outdir)
+                try:
+                    generate_alignment_and_error_propagation_analysis(df, args.outdir)
+                except Exception as e:
+                    print(f"[Warning] Failed to generate alignment/error propagation analysis: {e}")
 
     # 2. Sequence Length Analysis
     scan_source = args.repdir or (rep_dst if os.path.exists(rep_dst) else args.workdir)
