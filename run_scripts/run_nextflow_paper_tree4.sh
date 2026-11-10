@@ -81,9 +81,10 @@ export NXF_OPTS="-Xms2g -Xmx12g"
 #   - PSA + NJ (PWA+NJ / MMSEQS+NJ):
 #       MMseqs2 (-s 7.5 -e 10) による対称化相対配列類似度スコア w_ij を算出し、
 #       d_ij = 1 - w_ij (PWA+NJ) および d_ij = -ln(w_ij) (MMSEQS+NJ) で距離行列を構築して NJ 推定
-#   - MSA + NJ (MSA+NJ / MSA_LINSI+NJ / TRUE_MSA+NJ):
+#   - MSA + NJ (MSA+NJ / TRUE_MSA+NJ / TRUE_PWA+NJ):
 #       R phangorn::dist.ml に準拠した WAG + Gamma4 (alpha=1.0) 最尤距離により距離行列を構築して NJ 推定
-#   - アライメント: MAFFT --auto および MAFFT L-INS-i (mafft-linsi) の双方を比較
+#   - 評価パイプライン: NJ法に限定 (PWA+NJ, MMSEQS+NJ, MSA+NJ, TRUE_PWA+NJ, TRUE_MSA+NJ)
+#       ※ ML (IQ-TREE 2), RAxML, MrBayes, GS, MAFFT L-INS-i は除外して高速実行
 echo "[$(date)] 実験18 (Paper Tree Benchmark 4 - 論文距離行列・PSA+NJ 完全一致版) 開始"
 nextflow run main.nf \
     -c next_configs/nextflow_paper_tree4.config \
