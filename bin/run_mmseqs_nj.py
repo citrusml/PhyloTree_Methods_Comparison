@@ -40,6 +40,25 @@ def find_mmseqs_binary() -> str:
     if os.path.isfile(local_cand) and os.access(local_cand, os.X_OK):
         return local_cand
 
+    user_home = os.path.expanduser("~")
+    home_bin = os.path.join(user_home, "bin", "mmseqs")
+    if os.path.isfile(home_bin) and os.access(home_bin, os.X_OK):
+        return home_bin
+
+    env_dir = os.environ.get("CONDA_PREFIX")
+    mamba_root = os.environ.get("MAMBA_ROOT_PREFIX")
+    roots = [os.path.join(user_home, sub) for sub in [".micromamba", "micromamba", ".conda", "miniforge3", "mambaforge", "miniconda3", "anaconda3"]]
+    if mamba_root:
+        roots.insert(0, mamba_root)
+    if env_dir:
+        roots.insert(0, os.path.dirname(os.path.dirname(env_dir)))
+
+    for root in roots:
+        for env_name in ["phylomethod_env", "mmseqs_env"]:
+            m_cand = os.path.join(root, "envs", env_name, "bin", "mmseqs")
+            if os.path.isfile(m_cand) and os.access(m_cand, os.X_OK):
+                return m_cand
+
     raise RuntimeError("MMseqs2 binary 'mmseqs' was not found in PATH. Please ensure mmseqs2 is installed.")
 
 

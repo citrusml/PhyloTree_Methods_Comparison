@@ -11,27 +11,64 @@
 export PATH="$HOME/bin:$PATH"
 eval "$(micromamba shell hook --shell bash)"
 micromamba activate phylomethod_env
+mkdir -p "$HOME/bin"
 export PATH="$CONDA_PREFIX/bin:$HOME/bin:$PATH"
 
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 mkdir -p logs results/results_paper_tree4
 
-# Nextflow の確認・自動復旧 (前回の perl-bioperl 導入で競合削除された場合の自動再インストール)
-if ! command -v nextflow >/dev/null 2>&1; then
-    echo "[$(date)] Restoring nextflow into phylomethod_env..."
-    micromamba install -y -n phylomethod_env -c bioconda -c conda-forge nextflow
+# 1. phylomethod_env 内に混入した perl-bioperl の除去 (openjdk/mmseqs2 との依存競合の原因を排除)
+if micromamba list -n phylomethod_env 2>/dev/null | grep -q "perl-bioperl"; then
+    echo "[$(date)] Removing conflicting perl-bioperl from phylomethod_env..."
+    micromamba remove -y -n phylomethod_env perl-bioperl || true
+fi
+
+# 2. phylomethod_env 必須ツールの一括確認・自動復旧 (nextflow, mmseqs2, mafft, rapidnj, fastme, iqtree, raxml)
+MISSING_PKGS=""
+command -v nextflow >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS nextflow"
+command -v mmseqs   >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS mmseqs2"
+command -v mafft    >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS mafft"
+command -v rapidnj  >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS rapidnj"
+command -v fastme   >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS fastme"
+(command -v iqtree2 >/dev/null 2>&1 || command -v iqtree >/dev/null 2>&1) || MISSING_PKGS="$MISSING_PKGS iqtree"
+(command -v raxmlHPC-PTHREADS >/dev/null 2>&1 || command -v raxmlHPC >/dev/null 2>&1) || MISSING_PKGS="$MISSING_PKGS raxml"
+
+if [ -n "$MISSING_PKGS" ]; then
+    echo "[$(date)] Restoring missing packages into phylomethod_env:$MISSING_PKGS"
+    micromamba install -y -n phylomethod_env -c conda-forge -c bioconda \
+        nextflow mmseqs2 mafft rapidnj fastme iqtree raxml || true
     hash -r
 fi
 
-# BioPerl は Nextflow (openjdk/openssl) との依存競合を防ぐため独立環境 bioperl_env に配備
+# 3. 万一 phylomethod_env 内で mmseqs2 が競合した場合の独立環境 mmseqs_env 配備 + シンボリックリンク作成
+if ! command -v mmseqs >/dev/null 2>&1; then
+    echo "[$(date)] Creating isolated mmseqs_env for MMseqs2..."
+    micromamba create -y -n mmseqs_env -c conda-forge -c bioconda mmseqs2 || true
+    for cand in "${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/mmseqs_env/bin/mmseqs" "$HOME/.micromamba/envs/mmseqs_env/bin/mmseqs"; do
+        if [ -x "$cand" ]; then
+            ln -sf "$cand" "$HOME/bin/mmseqs"
+            [ -n "$CONDA_PREFIX" ] && ln -sf "$cand" "$CONDA_PREFIX/bin/mmseqs"
+            break
+        fi
+    done
+    hash -r
+fi
+
+# 4. BioPerl は独立環境 bioperl_env に配備
 BIOPERL_Root="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/bioperl_env"
 if [ ! -x "${BIOPERL_Root}/bin/perl" ] && [ ! -x "$HOME/.micromamba/envs/bioperl_env/bin/perl" ]; then
     echo "[$(date)] Creating isolated bioperl_env for Bio::Tree::RandomFactory..."
     micromamba create -y -n bioperl_env -c bioconda -c conda-forge perl-bioperl || true
 fi
 
-# INDELible バイナリの配備・確認
+# 5. INDELible バイナリの配備・確認
 bash bin/install_indelible.sh
+
+echo "[$(date)] Tool verification:"
+echo "  nextflow: $(command -v nextflow)"
+echo "  mmseqs:   $(command -v mmseqs)"
+echo "  mafft:    $(command -v mafft)"
+echo "  rapidnj:  $(command -v rapidnj)"
 
 # JVMヒープを明示的に指定
 export NXF_OPTS="-Xms2g -Xmx12g"

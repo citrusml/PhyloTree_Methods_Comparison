@@ -53,9 +53,22 @@ def find_mmseqs_binary() -> Optional[str]:
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     user_home = os.path.expanduser("~")
-    cand = os.path.join(user_home, ".micromamba", "envs", "phylomethod_env", "bin", "mmseqs")
-    if os.path.isfile(cand) and os.access(cand, os.X_OK):
-        return cand
+    home_bin = os.path.join(user_home, "bin", "mmseqs")
+    if os.path.isfile(home_bin) and os.access(home_bin, os.X_OK):
+        return home_bin
+
+    mamba_root = os.environ.get("MAMBA_ROOT_PREFIX")
+    roots = [os.path.join(user_home, sub) for sub in [".micromamba", "micromamba", ".conda", "miniforge3", "mambaforge", "miniconda3", "anaconda3"]]
+    if mamba_root:
+        roots.insert(0, mamba_root)
+    if env_dir:
+        roots.insert(0, os.path.dirname(os.path.dirname(env_dir)))
+
+    for root in roots:
+        for env_name in ["phylomethod_env", "mmseqs_env"]:
+            cand = os.path.join(root, "envs", env_name, "bin", "mmseqs")
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
     return None
 
 
