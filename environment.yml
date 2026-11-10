@@ -20,6 +20,8 @@ dependencies:
   - numpy>=1.24.0
   - mrbayes>=3.2.7
   - mmseqs2>=18.8
-  - perl-bioperl>=1.6.924
+  # Note: perl-bioperl conflicts with modern openjdk/nextflow in bioconda;
+  # install into isolated 'bioperl_env' instead:
+  #   micromamba create -y -n bioperl_env -c bioconda -c conda-forge perl-bioperl
   - liblapacke>=3.11.0
   - openblas

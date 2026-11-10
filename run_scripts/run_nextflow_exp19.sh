@@ -22,10 +22,18 @@ mkdir -p logs results/results_exp19 results/results_exp19_N64 results/results_ex
 # INDELible バイナリの配備・確認
 bash bin/install_indelible.sh
 
-# BioPerl の配備・確認
-if ! perl -MBio::Tree::RandomFactory -e 1 2>/dev/null; then
-    echo "[$(date)] Installing perl-bioperl into phylomethod_env..."
-    micromamba install -y -c bioconda -c conda-forge perl-bioperl
+# Nextflow の確認・自動復旧
+if ! command -v nextflow >/dev/null 2>&1; then
+    echo "[$(date)] Restoring nextflow into phylomethod_env..."
+    micromamba install -y -n phylomethod_env -c bioconda -c conda-forge nextflow
+    hash -r
+fi
+
+# BioPerl は Nextflow (openjdk/openssl) との依存競合を防ぐため独立環境 bioperl_env に配備
+BIOPERL_Root="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/bioperl_env"
+if [ ! -x "${BIOPERL_Root}/bin/perl" ] && [ ! -x "$HOME/.micromamba/envs/bioperl_env/bin/perl" ]; then
+    echo "[$(date)] Creating isolated bioperl_env for Bio::Tree::RandomFactory..."
+    micromamba create -y -n bioperl_env -c bioconda -c conda-forge perl-bioperl || true
 fi
 
 # JVMヒープ

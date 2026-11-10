@@ -183,16 +183,39 @@ def get_perl_executable() -> Optional[str]:
     """
     candidates = []
 
+    # 0. Explicit BIOPERL_PERL environment variable or dedicated bioperl_env
+    bioperl_env_perl = os.environ.get("BIOPERL_PERL")
+    if bioperl_env_perl and os.path.isfile(bioperl_env_perl) and os.access(bioperl_env_perl, os.X_OK):
+        candidates.append(bioperl_env_perl)
+
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    mamba_root = os.environ.get("MAMBA_ROOT_PREFIX")
+    home_dir = os.path.expanduser("~")
+    possible_env_roots = []
+    if conda_prefix:
+        possible_env_roots.append(os.path.dirname(conda_prefix))
+    if mamba_root:
+        possible_env_roots.append(os.path.join(mamba_root, "envs"))
+    possible_env_roots.extend([
+        os.path.join(home_dir, ".micromamba", "envs"),
+        os.path.join(home_dir, "micromamba", "envs"),
+        os.path.join(home_dir, ".conda", "envs"),
+        os.path.join(home_dir, "miniconda3", "envs"),
+    ])
+    for env_root in possible_env_roots:
+        bp_perl = os.path.join(env_root, "bioperl_env", "bin", "perl")
+        if os.path.isfile(bp_perl) and os.access(bp_perl, os.X_OK) and bp_perl not in candidates:
+            candidates.append(bp_perl)
+
     # 1. Same directory as current python interpreter (conda/micromamba env)
     env_perl = os.path.join(os.path.dirname(sys.executable), "perl")
-    if os.path.isfile(env_perl) and os.access(env_perl, os.X_OK):
+    if os.path.isfile(env_perl) and os.access(env_perl, os.X_OK) and env_perl not in candidates:
         candidates.append(env_perl)
 
     # 2. CONDA_PREFIX if set
-    conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
         cp_perl = os.path.join(conda_prefix, "bin", "perl")
-        if os.path.isfile(cp_perl) and os.access(cp_perl, os.X_OK):
+        if os.path.isfile(cp_perl) and os.access(cp_perl, os.X_OK) and cp_perl not in candidates:
             candidates.append(cp_perl)
 
     # 3. perl from PATH

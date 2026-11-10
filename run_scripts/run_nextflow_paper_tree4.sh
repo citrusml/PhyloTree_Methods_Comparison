@@ -11,18 +11,27 @@
 export PATH="$HOME/bin:$PATH"
 eval "$(micromamba shell hook --shell bash)"
 micromamba activate phylomethod_env
+export PATH="$CONDA_PREFIX/bin:$HOME/bin:$PATH"
 
 cd /lustre10/home/citrusml2004/PhyloTree_Methods_Comparison
 mkdir -p logs results/results_paper_tree4
 
+# Nextflow の確認・自動復旧 (前回の perl-bioperl 導入で競合削除された場合の自動再インストール)
+if ! command -v nextflow >/dev/null 2>&1; then
+    echo "[$(date)] Restoring nextflow into phylomethod_env..."
+    micromamba install -y -n phylomethod_env -c bioconda -c conda-forge nextflow
+    hash -r
+fi
+
+# BioPerl は Nextflow (openjdk/openssl) との依存競合を防ぐため独立環境 bioperl_env に配備
+BIOPERL_Root="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/bioperl_env"
+if [ ! -x "${BIOPERL_Root}/bin/perl" ] && [ ! -x "$HOME/.micromamba/envs/bioperl_env/bin/perl" ]; then
+    echo "[$(date)] Creating isolated bioperl_env for Bio::Tree::RandomFactory..."
+    micromamba create -y -n bioperl_env -c bioconda -c conda-forge perl-bioperl || true
+fi
+
 # INDELible バイナリの配備・確認
 bash bin/install_indelible.sh
-
-# BioPerl の配備・確認 (未インストールの場合は自動インストール)
-if ! perl -MBio::Tree::RandomFactory -e 1 2>/dev/null; then
-    echo "[$(date)] Installing perl-bioperl into phylomethod_env..."
-    micromamba install -y -c bioconda -c conda-forge perl-bioperl
-fi
 
 # JVMヒープを明示的に指定
 export NXF_OPTS="-Xms2g -Xmx12g"
