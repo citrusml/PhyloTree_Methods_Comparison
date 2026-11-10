@@ -31,11 +31,11 @@ process COLLECT_AND_PLOT {
     # Resolve Python binary (prioritize phylomethod_env)
     PY_BIN=""
     for cand in \
-        "${CONDA_PREFIX}/bin/python3" \
-        "${CONDA_PREFIX}/bin/python" \
-        "$HOME/.micromamba/envs/phylomethod_env/bin/python3" \
-        "$HOME/micromamba/envs/phylomethod_env/bin/python3" \
-        "${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/phylomethod_env/bin/python3" \
+        "\${CONDA_PREFIX}/bin/python3" \
+        "\${CONDA_PREFIX}/bin/python" \
+        "\$HOME/.micromamba/envs/phylomethod_env/bin/python3" \
+        "\$HOME/micromamba/envs/phylomethod_env/bin/python3" \
+        "\${MAMBA_ROOT_PREFIX:-\$HOME/micromamba}/envs/phylomethod_env/bin/python3" \
         "\$(which python3 2>/dev/null)" \
         "/usr/bin/python3"; do
         if [ -n "\$cand" ] && [ -x "\$cand" ]; then
