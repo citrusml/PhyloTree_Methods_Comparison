@@ -32,7 +32,17 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
+
+try:
+    import seaborn as sns
+except ImportError:
+    import subprocess
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "seaborn"])
+        import seaborn as sns
+    except Exception as e:
+        print(f"Warning: Failed to import or install seaborn ({e}). Plotting may be degraded.", file=sys.stderr)
+        sns = None
 
 plt.rcParams.update({
     "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],

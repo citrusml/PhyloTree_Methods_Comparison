@@ -27,7 +27,40 @@ process COLLECT_AND_PLOT {
     script:
     """
     export MPLBACKEND=Agg
-    python3 -c '
+
+    # Resolve Python binary (prioritize phylomethod_env)
+    PY_BIN=""
+    for cand in \
+        "${CONDA_PREFIX}/bin/python3" \
+        "${CONDA_PREFIX}/bin/python" \
+        "$HOME/.micromamba/envs/phylomethod_env/bin/python3" \
+        "$HOME/micromamba/envs/phylomethod_env/bin/python3" \
+        "${MAMBA_ROOT_PREFIX:-$HOME/micromamba}/envs/phylomethod_env/bin/python3" \
+        "\$(which python3 2>/dev/null)" \
+        "/usr/bin/python3"; do
+        if [ -n "\$cand" ] && [ -x "\$cand" ]; then
+            if "\$cand" -c "import seaborn" >/dev/null 2>&1; then
+                PY_BIN="\$cand"
+                break
+            elif [ -z "\$PY_BIN" ]; then
+                PY_BIN="\$cand"
+            fi
+        fi
+    done
+
+    if [ -z "\$PY_BIN" ]; then
+        PY_BIN="python3"
+    fi
+
+    # Ensure seaborn is available
+    if ! "\$PY_BIN" -c "import seaborn" >/dev/null 2>&1; then
+        echo "[COLLECT_AND_PLOT] Warning: seaborn missing in \$PY_BIN, installing via pip..."
+        "\$PY_BIN" -m pip install --quiet seaborn || true
+    fi
+
+    echo "[COLLECT_AND_PLOT] Using Python binary: \$PY_BIN"
+
+    "\$PY_BIN" -c '
 import os, glob, sys, traceback
 import pandas as pd
 
@@ -85,6 +118,6 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 '
-    python3 ${moduleDir}/../bin/plot/generate_all_reports.py --csv benchmark_summary.csv --outdir .
+    "\$PY_BIN" ${moduleDir}/../bin/plot/generate_all_reports.py --csv benchmark_summary.csv --outdir .
     """
 }

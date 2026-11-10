@@ -40,6 +40,13 @@ if [ -n "$MISSING_PKGS" ]; then
     hash -r
 fi
 
+# 2.5 phylomethod_env 必須 Python パッケージ (seaborn, matplotlib, pandas, dendropy, biopython, scipy) の確認・自動導入
+if ! python3 -c "import seaborn, matplotlib, pandas, dendropy, Bio, scipy" >/dev/null 2>&1; then
+    echo "[$(date)] Installing missing Python packages (seaborn, matplotlib, pandas, dendropy, biopython, scipy)..."
+    micromamba install -y -n phylomethod_env -c conda-forge seaborn matplotlib pandas dendropy biopython scipy || \
+    python3 -m pip install seaborn matplotlib pandas dendropy biopython scipy || true
+fi
+
 # 3. 万一 phylomethod_env 内で mmseqs2 が競合した場合の独立環境 mmseqs_env 配備 + シンボリックリンク作成
 if ! command -v mmseqs >/dev/null 2>&1; then
     echo "[$(date)] Creating isolated mmseqs_env for MMseqs2..."
