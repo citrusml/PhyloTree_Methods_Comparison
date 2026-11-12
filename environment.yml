@@ -23,5 +23,9 @@ dependencies:
   # Note: perl-bioperl conflicts with modern openjdk/nextflow in bioconda;
   # install into isolated 'bioperl_env' instead:
   #   micromamba create -y -n bioperl_env -c bioconda -c conda-forge perl-bioperl
+  # Note: For NELSI autocorrelated Yule tree generation (bin/generate_tree_nelsi.R),
+  # ensure R (>= 3.6.0) has 'ape', 'castor', 'digest', and 'NELSI' installed:
+  #   Rscript -e "install.packages(c('ape', 'castor', 'digest', 'remotes'), repos='https://cloud.r-project.org')"
+  #   Rscript -e "remotes::install_github('sebastianduchene/NELSI')"
   - liblapacke>=3.11.0
   - openblas

@@ -7,8 +7,9 @@ simulation specifications:
 1. Primary engine: BioPerl 1.6.924 (Bio::Tree::RandomFactory, rand_yule_c_tree) via bin/generate_tree.pl
 2. Topology: Backward Yule process with constant birth rate lambda = 1.0.
 3. Branch Lengths: Sampled from logarithmic distribution l = 1 - ln(u * (e - 1) + 1) and scaled by D.
-4. Taxa: Terminal leaves named T1, T2, ..., TN for AliSim and INDELible compatibility.
-5. Robust fallback: Pure Python implementation matching BioPerl specifications if Perl/BioPerl is absent.
+4. NELSI Autocorrelated Models: Yule chronogram (ape::rphylo) + NELSI (simulate.autocor.kishino / simulate.autocor.thorne) via bin/generate_tree_nelsi.R.
+5. Taxa: Terminal leaves named T1, T2, ..., TN for AliSim and INDELible compatibility.
+6. Robust fallback: Pure Python implementation matching BioPerl specifications if Perl/BioPerl is absent (for paper_yule).
 """
 
 from typing import List, Optional
@@ -382,12 +383,254 @@ def generate_paper_yule_tree(
         raise ValueError(f"Unsupported engine: '{engine}'. Must be 'bioperl' or 'python'.")
 
 
+def get_rscript_executable() -> Optional[str]:
+    """
+    Finds an Rscript executable capable of loading the NELSI R package.
+
+    Checks ``NELSI_RSCRIPT``, the active Python/Conda environment, ``PATH``,
+    and standard macOS/Linux R installation paths.
+
+    Returns
+    -------
+    Optional[str]
+        Path to an Rscript binary (preferring one with NELSI installed), or None if not found.
+    """
+    candidates: List[str] = []
+
+    env_rscript = os.environ.get("NELSI_RSCRIPT")
+    if env_rscript and os.path.isfile(env_rscript) and os.access(env_rscript, os.X_OK):
+        candidates.append(env_rscript)
+
+    local_rscript = os.path.join(os.path.dirname(sys.executable), "Rscript")
+    if os.path.isfile(local_rscript) and os.access(local_rscript, os.X_OK) and local_rscript not in candidates:
+        candidates.append(local_rscript)
+
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix:
+        cp_rscript = os.path.join(conda_prefix, "bin", "Rscript")
+        if os.path.isfile(cp_rscript) and os.access(cp_rscript, os.X_OK) and cp_rscript not in candidates:
+            candidates.append(cp_rscript)
+
+    which_rscript = shutil.which("Rscript")
+    if which_rscript and which_rscript not in candidates:
+        candidates.append(which_rscript)
+
+    for std_path in ("/usr/local/bin/Rscript", "/opt/homebrew/bin/Rscript", "/usr/bin/Rscript"):
+        if os.path.isfile(std_path) and os.access(std_path, os.X_OK) and std_path not in candidates:
+            candidates.append(std_path)
+
+    for rbin in candidates:
+        try:
+            res = subprocess.run(
+                [rbin, "-e", "if (!requireNamespace('NELSI', quietly=TRUE)) quit(status=1)"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if res.returncode == 0:
+                return rbin
+        except Exception:
+            continue
+
+    return candidates[0] if candidates else None
+
+
+def is_nelsi_available() -> bool:
+    """
+    Checks whether Rscript and the NELSI R package are available.
+
+    Returns
+    -------
+    bool
+        True if NELSI can be loaded in Rscript, False otherwise.
+    """
+    rscript_bin = get_rscript_executable()
+    if not rscript_bin:
+        return False
+    try:
+        res = subprocess.run(
+            [rscript_bin, "-e", "if (!requireNamespace('NELSI', quietly=TRUE)) quit(status=1)"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+def generate_tree_with_nelsi(
+    taxa: int = 32,
+    scale: float = 1.0,
+    seed: Optional[int] = None,
+    model: str = "nelsi_kishino",
+    v: float = 0.3,
+    initial_rate: float = 1.0,
+    scale_mode: str = "root_to_tip",
+    lba_ratio: float = 1.0,
+    min_length: float = 1e-6,
+    outtree: Optional[str] = None,
+) -> str:
+    """
+    Generates a Yule-topology phylogenetic tree with autocorrelated branch lengths
+    strictly using the R package NELSI via ``bin/generate_tree_nelsi.R`` (no fallback).
+
+    Parameters
+    ----------
+    taxa : int, default=32
+        Number of terminal taxa (leaves) in the tree [taxa]. Must be >= 2.
+    scale : float, default=1.0
+        Evolutionary distance scaling factor D [substitutions/site]. Must be > 0.
+    seed : Optional[int], default=None
+        Random seed for R RNG reproducibility [unitless].
+    model : str, default='nelsi_kishino'
+        NELSI autocorrelation model: ``'nelsi_kishino'`` (or ``'nelsi'``, ``'kishino'``)
+        or ``'nelsi_thorne'`` (or ``'thorne'``).
+    v : float, default=0.3
+        NELSI autocorrelation variance parameter v [unitless]. Must be >= 0.
+    initial_rate : float, default=1.0
+        NELSI initial root substitution rate [substitutions/site/unit time]. Must be > 0.
+    scale_mode : str, default='root_to_tip'
+        How ``scale`` is applied to the NELSI phylogram: ``'root_to_tip'`` (mean
+        root-to-tip distance equals ``scale``), ``'mean_branch'`` (mean branch length
+        equals ``scale``), or ``'raw'`` (multiplies raw NELSI lengths by ``scale``).
+    lba_ratio : float, default=1.0
+        Long-branch attraction multiplier applied to T1 and TN [unitless].
+    min_length : float, default=1e-6
+        Minimum branch length floor [substitutions/site].
+    outtree : Optional[str], default=None
+        Optional output Newick file path. If None, uses a temporary file.
+
+    Returns
+    -------
+    str
+        Valid Newick tree string terminated with a semicolon ';'.
+    """
+    if taxa < 2:
+        raise ValueError(f"Taxa count must be at least 2, got {taxa}")
+    if scale <= 0.0:
+        raise ValueError(f"Scale must be strictly positive, got {scale}")
+    if v < 0.0:
+        raise ValueError(f"NELSI autocorrelation parameter v must be non-negative, got {v}")
+    if initial_rate <= 0.0:
+        raise ValueError(f"NELSI initial_rate must be strictly positive, got {initial_rate}")
+    if scale_mode not in ("root_to_tip", "mean_branch", "raw"):
+        raise ValueError(f"Unsupported scale_mode '{scale_mode}'. Must be 'root_to_tip', 'mean_branch', or 'raw'.")
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    r_script = os.path.join(script_dir, "generate_tree_nelsi.R")
+    if not os.path.exists(r_script):
+        raise FileNotFoundError(f"NELSI R tree generator script not found at {r_script}")
+
+    rscript_bin = get_rscript_executable()
+    if not rscript_bin:
+        raise RuntimeError(
+            "Rscript executable not found. Install R (>= 3.6.0) along with packages "
+            "'ape', 'castor', 'digest', and 'NELSI' (sebastianduchene/NELSI)."
+        )
+
+    cleanup_temp = False
+    if outtree is None:
+        fd, target_path = tempfile.mkstemp(suffix=".nwk")
+        os.close(fd)
+        cleanup_temp = True
+    else:
+        target_path = outtree
+
+    cmd = [
+        rscript_bin,
+        r_script,
+        "--taxa", str(taxa),
+        "--scale", str(scale),
+        "--model", str(model),
+        "--v", str(v),
+        "--initial_rate", str(initial_rate),
+        "--scale_mode", str(scale_mode),
+        "--lba_ratio", str(lba_ratio),
+        "--min_length", str(min_length),
+        "--outtree", target_path,
+    ]
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            err_msg = proc.stderr.strip() or proc.stdout.strip()
+            raise RuntimeError(
+                f"NELSI R execution failed (code {proc.returncode}) using {rscript_bin}:\n{err_msg}"
+            )
+
+        with open(target_path, "r") as f:
+            newick = f.read().strip()
+        return newick
+    finally:
+        if cleanup_temp and os.path.exists(target_path):
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+
+
+def generate_nelsi_yule_tree(
+    taxa: int = 32,
+    scale: float = 1.0,
+    seed: Optional[int] = None,
+    model: str = "nelsi_kishino",
+    v: float = 0.3,
+    initial_rate: float = 1.0,
+    scale_mode: str = "root_to_tip",
+    lba_ratio: float = 1.0,
+    min_length: float = 1e-6,
+) -> str:
+    """
+    Public wrapper to generate a Yule-topology tree with NELSI autocorrelated branch lengths.
+
+    Parameters
+    ----------
+    taxa : int, default=32
+        Number of terminal taxa [taxa].
+    scale : float, default=1.0
+        Evolutionary distance scaling factor D [substitutions/site].
+    seed : Optional[int], default=None
+        Random seed for reproducibility [unitless].
+    model : str, default='nelsi_kishino'
+        NELSI model: ``'nelsi_kishino'`` or ``'nelsi_thorne'``.
+    v : float, default=0.3
+        NELSI autocorrelation variance parameter v [unitless].
+    initial_rate : float, default=1.0
+        NELSI initial root substitution rate [substitutions/site/unit time].
+    scale_mode : str, default='root_to_tip'
+        Scaling mode: ``'root_to_tip'``, ``'mean_branch'``, or ``'raw'``.
+    lba_ratio : float, default=1.0
+        Long-branch attraction ratio b/a [unitless].
+    min_length : float, default=1e-6
+        Minimum branch length [substitutions/site].
+
+    Returns
+    -------
+    str
+        Valid Newick tree string terminated with ';'.
+    """
+    return generate_tree_with_nelsi(
+        taxa=taxa,
+        scale=scale,
+        seed=seed,
+        model=model,
+        v=v,
+        initial_rate=initial_rate,
+        scale_mode=scale_mode,
+        lba_ratio=lba_ratio,
+        min_length=min_length,
+    )
+
+
 def main() -> None:
     """
     Parses CLI arguments, generates the specified tree, and writes to output file.
     """
     parser = argparse.ArgumentParser(
-        description="Generate synthetic phylogenetic trees (Matsui & Iwasaki 2020 paper BioPerl model)"
+        description="Generate synthetic phylogenetic trees (BioPerl paper_yule or R NELSI autocorrelated Yule)"
     )
     parser.add_argument(
         "--taxa",
@@ -409,21 +652,39 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        choices=["paper_yule", "yule"],
+        choices=["paper_yule", "yule", "nelsi_kishino", "nelsi_thorne", "nelsi"],
         default="paper_yule",
         help="Tree generation model (default: paper_yule)",
     )
     parser.add_argument(
         "--engine",
-        choices=["auto", "bioperl", "python"],
+        choices=["auto", "bioperl", "python", "nelsi"],
         default="auto",
-        help="Tree generation engine (default: auto; uses BioPerl if available, falls back to Python with warning).",
+        help="Tree generation engine (default: auto; uses BioPerl for paper_yule or R NELSI for nelsi_* models).",
     )
     parser.add_argument(
         "--rate_sd",
         type=float,
         default=0.0,
-        help="Rate heterogeneity standard deviation (default: 0.0)",
+        help="Rate heterogeneity standard deviation for paper_yule (default: 0.0)",
+    )
+    parser.add_argument(
+        "--nelsi_v",
+        type=float,
+        default=0.3,
+        help="NELSI autocorrelation variance parameter v (default: 0.3)",
+    )
+    parser.add_argument(
+        "--nelsi_initial_rate",
+        type=float,
+        default=1.0,
+        help="NELSI initial root substitution rate (default: 1.0)",
+    )
+    parser.add_argument(
+        "--nelsi_scale_mode",
+        choices=["root_to_tip", "mean_branch", "raw"],
+        default="root_to_tip",
+        help="Scaling mode for NELSI phylogram relative to --scale (default: root_to_tip)",
     )
     parser.add_argument(
         "--lba_ratio",
@@ -445,9 +706,23 @@ def main() -> None:
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
+    is_nelsi_model = args.model in ("nelsi_kishino", "nelsi_thorne", "nelsi")
+
     # Determine execution engine
     chosen_engine = args.engine
-    if chosen_engine == "auto":
+    if is_nelsi_model:
+        if chosen_engine in ("bioperl", "python"):
+            raise ValueError(
+                f"Engine '{chosen_engine}' is not compatible with NELSI model '{args.model}'. "
+                "Use '--engine nelsi' or '--engine auto'."
+            )
+        chosen_engine = "nelsi"
+    elif chosen_engine == "nelsi":
+        raise ValueError(
+            f"Engine 'nelsi' requires a NELSI model (--model nelsi_kishino or --model nelsi_thorne), "
+            f"got '--model {args.model}'."
+        )
+    elif chosen_engine == "auto":
         if is_bioperl_available():
             chosen_engine = "bioperl"
         else:
@@ -458,7 +733,23 @@ def main() -> None:
             chosen_engine = "python"
 
     # Generate tree strictly with selected engine
-    if chosen_engine == "bioperl":
+    if chosen_engine == "nelsi":
+        generate_tree_with_nelsi(
+            taxa=args.taxa,
+            scale=args.scale,
+            seed=args.seed,
+            model=args.model,
+            v=args.nelsi_v,
+            initial_rate=args.nelsi_initial_rate,
+            scale_mode=args.nelsi_scale_mode,
+            lba_ratio=args.lba_ratio,
+            outtree=args.outtree,
+        )
+        print(
+            f"Generated {args.model} tree [NELSI] ({args.taxa} taxa, scale={args.scale}, "
+            f"v={args.nelsi_v}, scale_mode={args.nelsi_scale_mode}, seed={args.seed}) -> {args.outtree}"
+        )
+    elif chosen_engine == "bioperl":
         generate_tree_with_bioperl(
             taxa=args.taxa,
             scale=args.scale,

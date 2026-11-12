@@ -29,7 +29,13 @@ process SIMULATE_DATA {
     def tree_model = params.containsKey('tree_model') ? params.tree_model.toString().toLowerCase() : 'birth_death'
     def rate_sd = params.containsKey('rate_sd') ? params.rate_sd : 0.0
     def lba_ratio = params.containsKey('lba_ratio') ? params.lba_ratio : 1.0
+    def nelsi_v = params.containsKey('nelsi_v') ? params.nelsi_v : 0.3
+    def nelsi_initial_rate = params.containsKey('nelsi_initial_rate') ? params.nelsi_initial_rate : 1.0
+    def nelsi_scale_mode = params.containsKey('nelsi_scale_mode') ? params.nelsi_scale_mode.toString().toLowerCase() : 'root_to_tip'
     def is_paper_yule = (tree_model == 'paper_yule' || tree_model == 'yule')
+    def is_nelsi = (tree_model == 'nelsi' || tree_model == 'nelsi_kishino' || tree_model == 'nelsi_thorne' || tree_model == 'kishino' || tree_model == 'thorne')
+    def nelsi_model = (tree_model == 'nelsi_thorne' || tree_model == 'thorne') ? 'nelsi_thorne' : 'nelsi_kishino'
+    def is_external_tree = (is_paper_yule || is_nelsi)
 
     // INDELible specific parameter parsing
     def raw_model = params.model ? params.model.toString().toUpperCase() : 'WAG'
@@ -79,7 +85,19 @@ process SIMULATE_DATA {
             cur_seed=\$((rep + attempt * 100000))
 
             # 1. 系統樹生成
-            if [ "${is_paper_yule}" = "true" ]; then
+            if [ "${is_nelsi}" = "true" ]; then
+                python3 ${moduleDir}/../bin/generate_tree.py \\
+                    --taxa ${params.taxa} \\
+                    --scale ${dist} \\
+                    --seed \${cur_seed} \\
+                    --model ${nelsi_model} \\
+                    --engine nelsi \\
+                    --nelsi_v ${nelsi_v} \\
+                    --nelsi_initial_rate ${nelsi_initial_rate} \\
+                    --nelsi_scale_mode ${nelsi_scale_mode} \\
+                    --lba_ratio ${lba_ratio} \\
+                    --outtree true_tree_\${rep}.nwk
+            elif [ "${is_paper_yule}" = "true" ]; then
                 python3 ${moduleDir}/../bin/generate_tree.py \\
                     --taxa ${params.taxa} \\
                     --scale ${dist} \\
@@ -169,7 +187,7 @@ sys.exit(0 if (valid and count == taxa) else 1)
                 rm -rf "\${WORK_IND}"
             else
                 # AliSim 実行ブロック
-                if [ "${is_paper_yule}" = "true" ]; then
+                if [ "${is_external_tree}" = "true" ]; then
                     if \${IQTREE_BIN} --alisim sim_\${rep} \\
                         ${mdef_arg} \\
                         -m "${model_str}" \\

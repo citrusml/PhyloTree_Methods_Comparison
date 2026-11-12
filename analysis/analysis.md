@@ -13,9 +13,9 @@
 
 ### 1.2 解析方針と統合データセット
 - **対話的解析環境**: Jupyter Notebook ([analysis.ipynb](file:///Users/aibarakazuki/PhyloTree_Methods_Comparison/analysis/analysis.ipynb))
-  - 全 18 実験のヒートマップ、推移プロット、横軸対数 SSS 感度曲線、誤差逆伝播カスケード解析を完備。
+  - 全 19 実験のヒートマップ、推移プロット、横軸対数 SSS 感度曲線、誤差逆伝播カスケード解析、論文 Fig. 3a 再現オーバーレイプロットを完備。
 - **統合データフレーム**: [analysis/all_experiments_summary.csv](file:///Users/aibarakazuki/PhyloTree_Methods_Comparison/analysis/all_experiments_summary.csv)
-  - 全 18 実験、計 **225,340 系統樹推定** を単一スキーマ（22カラム）で完全統合。
+  - 全 19 実験、計 **234,340 系統樹推定** を単一スキーマ（22カラム）で完全統合。
   - すべてのレコードに Sequence Similarity Score（`sss`, `sss_mean`, `sss_median`, `sss_std`, `sss_min`, `sss_max`, `sss_zero_frac`）を欠損値 0 件で紐付け済み。
 - **表記の標準化**: パイプライン名称を `PWA+NJ` から `PSA+NJ`（Pairwise Sequence Alignment + Neighbor-Joining）へ完全統一。
 
@@ -55,7 +55,8 @@
 | 16 | [`Exp16_PaperTree2`](./results/results_paper_tree2) | **INDELible v1.03 正式採用**, $N=20$, WAG+G4, Zipfian | GS, MSA+ML, MSA+RAXML, PSA+NJ, TRUE群 | 3,240 | $[0.0097 .. 0.6516]$ | **論文 Fig. 3a 完全再現**: $w \le 0.03$ で GS が ML/RAxML と同等以上の耐性を実証 |
 | 17 | [`Exp17_PaperTree3`](./results/results_paper_tree3) | **原著完全再現 16,200推定完走**, $SP$ スコア, 距離MAE | GS, MSA+ML, MSA+RAXML, PSA+NJ, TRUE群 | 16,200 | $[0.0085 .. 0.6516]$ | $D \to SP \to \\text{MAE} \to nRF$ の 4 段階誤差逆伝播カスケードを定量解明 |
 | 18 | [`Exp18_ICSFull_PaperTree`](./results/results_ics_full) | 後退Yule系統樹下での全長保存ドメイン ($ICS=1.0$) | PSA+NJ, MSA+NJ, MSA+RAXML, TRUE群 | 10,800 | $[0.0216 .. 0.6136]$ | 論文準拠系統樹トポロジー下でも全長保存ドメインによる精度維持効果を確認 |
-| **計** | **全 18 実験** | **全条件網羅・欠損 0 件の完全統合データ** | **全 14 パイプライン** | **225,340** | **$[0.0000 .. 0.9861]$** | **統合解析ノートブック `analysis.ipynb` にて全セル検証完走** |
+| 19 | [`Exp19_PaperTree4`](./results/results_paper_tree4) | **原著距離行列・PSA完全準拠**, $N=20$, WAG+G4, Zipfian | PSA+NJ(線形), PSA+NJ(対数), MSA+NJ, TRUE群 | 9,000 | $[0.0085 .. 0.6516]$ | **論文 Fig. 3a の逆転実証**: 線形距離 $1-w_{ij}$ が対数距離に完勝（勝率 43.2% vs 4.7%）。$D \ge 1.5$ で PSA+NJ が MSA+NJ を逆転 |
+| **計** | **全 19 実験** | **全条件網羅・欠損 0 件の完全統合データ** | **全 15 パイプライン** | **234,340** | **$[0.0000 .. 0.9861]$** | **統合解析ノートブック `analysis.ipynb` にて全セル検証完走** |
 
 ---
 
