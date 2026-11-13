@@ -24,3 +24,4 @@ bin/iqtree
 bin/iqtree2
 bin/mafft
 research2/test_run/
+dataset/nelsi*

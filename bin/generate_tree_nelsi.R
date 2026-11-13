@@ -9,8 +9,9 @@
 #     --scale_mode root_to_tip --outtree tree.nwk
 #
 # Models:
-#   - nelsi_kishino (alias: kishino, nelsi): NELSI::simulate.autocor.kishino (Kishino et al. 2001)
-#   - nelsi_thorne  (alias: thorne):         NELSI::simulate.autocor.thorne (Thorne et al. 1998)
+#   - nelsi_kishino     (alias: kishino, nelsi):       NELSI::simulate.autocor.kishino (Kishino et al. 2001)
+#   - nelsi_thorne      (alias: thorne):               NELSI::simulate.autocor.thorne (Thorne et al. 1998)
+#   - nelsi_uncor_lnorm (alias: uncor_lnorm, ucln):    NELSI::simulate.uncor.lnorm (Uncorrelated lognormal)
 #
 # Output:
 #   Standard Newick format without internal node labels, leaf names T1..TN,
@@ -23,9 +24,11 @@ print_usage <- function() {
     "  --taxa <int>           Number of terminal taxa (default: 32, min: 2)\n",
     "  --scale <float>        Evolutionary distance scaling factor D (default: 1.0)\n",
     "  --seed <int>           Random seed for reproducibility (optional)\n",
-    "  --model <str>          NELSI autocorrelated model: nelsi_kishino (default) or nelsi_thorne\n",
+    "  --model <str>          NELSI model: nelsi_kishino (default), nelsi_thorne, or nelsi_uncor_lnorm\n",
     "  --v <float>            NELSI autocorrelation variance parameter v (default: 0.3)\n",
     "  --initial_rate <float> NELSI initial root substitution rate (default: 1.0)\n",
+    "  --mean_log <float>     NELSI uncor.lnorm mean.log parameter (default: 0.0)\n",
+    "  --sd_log <float>       NELSI uncor.lnorm sd.log parameter (default: 0.5)\n",
     "  --scale_mode <str>     Scaling mode: root_to_tip (default), mean_branch, or raw\n",
     "  --lba_ratio <float>    Long-branch attraction ratio on T1 and TN (default: 1.0)\n",
     "  --min_length <float>   Minimum branch length floor (default: 1e-6)\n",
@@ -42,6 +45,8 @@ parse_cli_args <- function(args) {
     model = "nelsi_kishino",
     v = 0.3,
     initial_rate = 1.0,
+    mean_log = 0.0,
+    sd_log = 0.5,
     scale_mode = "root_to_tip",
     lba_ratio = 1.0,
     min_length = 1e-6,
@@ -89,6 +94,10 @@ parse_cli_args <- function(args) {
       opts$v <- as.numeric(val)
     } else if (key %in% c("initial_rate", "nelsi_initial_rate")) {
       opts$initial_rate <- as.numeric(val)
+    } else if (key %in% c("mean_log", "nelsi_mean_log")) {
+      opts$mean_log <- as.numeric(val)
+    } else if (key %in% c("sd_log", "nelsi_sd_log")) {
+      opts$sd_log <- as.numeric(val)
     } else if (key %in% c("scale_mode", "nelsi_scale_mode")) {
       opts$scale_mode <- tolower(val)
     } else if (key == "lba_ratio") {
@@ -136,6 +145,12 @@ if (is.na(opts$v) || opts$v < 0.0) {
 if (is.na(opts$initial_rate) || opts$initial_rate <= 0.0) {
   stop(sprintf("NELSI initial_rate must be strictly positive, got %s", as.character(opts$initial_rate)))
 }
+if (is.na(opts$mean_log)) {
+  stop("NELSI mean_log must be a valid finite number.")
+}
+if (is.na(opts$sd_log) || opts$sd_log < 0.0) {
+  stop(sprintf("NELSI sd_log must be non-negative, got %s", as.character(opts$sd_log)))
+}
 if (!(opts$scale_mode %in% c("root_to_tip", "mean_branch", "raw"))) {
   stop(sprintf("Invalid --scale_mode '%s'. Must be root_to_tip, mean_branch, or raw.", opts$scale_mode))
 }
@@ -176,7 +191,7 @@ if (!is.finite(root_height) || root_height <= 0.0) {
 }
 chronogram$edge.length <- chronogram$edge.length / root_height
 
-# 2. Simulate autocorrelated rates and branch lengths with NELSI
+# 2. Simulate rates and branch lengths with NELSI
 nelsi_params <- list(initial.rate = opts$initial_rate, v = opts$v)
 
 if (opts$model %in% c("nelsi_kishino", "kishino", "nelsi", "nelsi_yule")) {
@@ -185,8 +200,12 @@ if (opts$model %in% c("nelsi_kishino", "kishino", "nelsi", "nelsi_yule")) {
 } else if (opts$model %in% c("nelsi_thorne", "thorne")) {
   sim_res <- NELSI::simulate.rate(chronogram, NELSI::simulate.autocor.thorne, params = nelsi_params)
   canonical_model <- "nelsi_thorne"
+} else if (opts$model %in% c("nelsi_uncor_lnorm", "uncor_lnorm", "ucln")) {
+  uncor_params <- list(mean.log = opts$mean_log, sd.log = opts$sd_log)
+  sim_res <- NELSI::simulate.rate(chronogram, NELSI::simulate.uncor.lnorm, params = uncor_params)
+  canonical_model <- "nelsi_uncor_lnorm"
 } else {
-  stop(sprintf("Unsupported NELSI model '%s'. Must be 'nelsi_kishino' or 'nelsi_thorne'.", opts$model))
+  stop(sprintf("Unsupported NELSI model '%s'. Must be 'nelsi_kishino', 'nelsi_thorne', or 'nelsi_uncor_lnorm'.", opts$model))
 }
 
 phylogram <- sim_res$phylogram

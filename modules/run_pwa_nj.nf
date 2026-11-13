@@ -20,6 +20,7 @@ process RUN_PWA_NJ {
     path("chunk_pwa_nj_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("pwa_nj_*.nwk")
     path("pwa_matrix_*.phylip")
+    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("pwa_nj_*.nwk"), path("pwa_matrix_*.phylip"), emit: nni_input
 
     script:
     def psa_dist_model = params.containsKey('psa_dist_model') ? params.psa_dist_model : params.dist_model

@@ -46,6 +46,7 @@ include { RUN_TRUE_MSA_NJ }  from './modules/run_true_msa_nj'
 include { RUN_TRUE_MSA_ML }  from './modules/run_true_msa_ml'
 include { RUN_TRUE_MSA_RAXML } from './modules/run_true_msa_raxml'
 include { RUN_TRUE_MSA_BI }  from './modules/run_true_msa_bi'
+include { RUN_NJ_NNI }       from './modules/run_nj_nni'
 include { CALCULATE_SSS }    from './modules/calculate_sss'
 include { CALCULATE_ALIGNMENT_METRICS } from './modules/calculate_alignment_metrics'
 include { COLLECT_AND_PLOT } from './modules/collect_and_plot'
@@ -83,6 +84,7 @@ workflow {
     def do_pwa_nj      = asBool(params.containsKey('run_pwa_nj') ? params.run_pwa_nj : true, true)
     def do_mmseqs_nj   = asBool(params.containsKey('run_mmseqs_nj') ? params.run_mmseqs_nj : false, false)
     def do_msa_nj      = asBool(params.containsKey('run_msa_nj') ? params.run_msa_nj : true, true)
+    def do_nj_nni      = asBool(params.containsKey('run_nj_nni') ? params.run_nj_nni : false, false)
     def do_msa_ml      = asBool(params.containsKey('run_msa_ml') ? params.run_msa_ml : true, true)
     def do_msa_raxml   = asBool(params.containsKey('run_msa_raxml') ? params.run_msa_raxml : false, false)
     def do_msa_linsi   = asBool(params.containsKey('run_msa_linsi') ? params.run_msa_linsi : false, false)
@@ -109,16 +111,24 @@ workflow {
         ch_all_csvs = ch_all_csvs.mix(CALCULATE_SSS.out.csv)
     }
 
+    def ch_nni_inputs = Channel.empty()
+
     // 1. PWA+NJ (Needleman-Wunsch)
     if (do_pwa_nj) {
         RUN_PWA_NJ(ch_sim_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_PWA_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_PWA_NJ.out.nni_input.map { it + ['pwa', 'PWA+NJ+NNI'] })
+        }
     }
 
     // 1.5 MMSEQS+NJ (MMseqs2 Pairwise Similarity Score + NJ, Matsui & Iwasaki 2020 NJ_PSA 準拠)
     if (do_mmseqs_nj) {
         RUN_MMSEQS_NJ(ch_sim_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MMSEQS_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_MMSEQS_NJ.out.nni_input.map { it + ['mmseqs', 'MMSEQS+NJ+NNI'] })
+        }
     }
 
     // 2. MAFFT --auto + MSA系（需要があるときのみ MAFFT を実行）
@@ -148,6 +158,9 @@ workflow {
     if (need_mafft && do_msa_nj) {
         RUN_MSA_NJ(RUN_MAFFT.out.msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MSA_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_MSA_NJ.out.nni_input.map { it + ['msa', 'MSA+NJ+NNI'] })
+        }
     }
     if (need_mafft && do_msa_ml) {
         RUN_MSA_ML(RUN_MAFFT.out.msa_data)
@@ -189,10 +202,16 @@ workflow {
     if (do_true_pwa) {
         RUN_TRUE_PWA_NJ(ch_true_msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_TRUE_PWA_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_TRUE_PWA_NJ.out.nni_input.map { it + ['true_pwa', 'TRUE_PWA+NJ+NNI'] })
+        }
     }
     if (do_true_msa_nj) {
         RUN_TRUE_MSA_NJ(ch_true_msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_TRUE_MSA_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_TRUE_MSA_NJ.out.nni_input.map { it + ['true_msa', 'TRUE_MSA+NJ+NNI'] })
+        }
     }
     if (do_true_msa_ml) {
         RUN_TRUE_MSA_ML(ch_true_msa_data)
@@ -205,6 +224,11 @@ workflow {
     if (do_true_msa_bi) {
         RUN_TRUE_MSA_BI(ch_true_msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_TRUE_MSA_BI.out.csv)
+    }
+
+    if (do_nj_nni) {
+        RUN_NJ_NNI(ch_nni_inputs)
+        ch_all_csvs = ch_all_csvs.mix(RUN_NJ_NNI.out.csv)
     }
 
     COLLECT_AND_PLOT(ch_all_csvs.collect())

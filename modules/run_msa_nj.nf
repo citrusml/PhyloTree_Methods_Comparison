@@ -20,6 +20,7 @@ process RUN_MSA_NJ {
     path("chunk_msa_nj_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("msa_nj_*.nwk")
     path("msa_matrix_*.phylip")
+    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("msa_nj_*.nwk"), path("msa_matrix_*.phylip"), emit: nni_input
 
     script:
     def msa_dist_model = params.containsKey('msa_dist_model') ? params.msa_dist_model : params.dist_model

@@ -31,10 +31,12 @@ process SIMULATE_DATA {
     def lba_ratio = params.containsKey('lba_ratio') ? params.lba_ratio : 1.0
     def nelsi_v = params.containsKey('nelsi_v') ? params.nelsi_v : 0.3
     def nelsi_initial_rate = params.containsKey('nelsi_initial_rate') ? params.nelsi_initial_rate : 1.0
+    def nelsi_mean_log = params.containsKey('nelsi_mean_log') ? params.nelsi_mean_log : 0.0
+    def nelsi_sd_log = params.containsKey('nelsi_sd_log') ? params.nelsi_sd_log : 0.5
     def nelsi_scale_mode = params.containsKey('nelsi_scale_mode') ? params.nelsi_scale_mode.toString().toLowerCase() : 'root_to_tip'
     def is_paper_yule = (tree_model == 'paper_yule' || tree_model == 'yule')
-    def is_nelsi = (tree_model == 'nelsi' || tree_model == 'nelsi_kishino' || tree_model == 'nelsi_thorne' || tree_model == 'kishino' || tree_model == 'thorne')
-    def nelsi_model = (tree_model == 'nelsi_thorne' || tree_model == 'thorne') ? 'nelsi_thorne' : 'nelsi_kishino'
+    def is_nelsi = (tree_model == 'nelsi' || tree_model == 'nelsi_kishino' || tree_model == 'nelsi_thorne' || tree_model == 'kishino' || tree_model == 'thorne' || tree_model == 'nelsi_uncor_lnorm' || tree_model == 'uncor_lnorm' || tree_model == 'ucln')
+    def nelsi_model = (tree_model == 'nelsi_thorne' || tree_model == 'thorne') ? 'nelsi_thorne' : ((tree_model == 'nelsi_uncor_lnorm' || tree_model == 'uncor_lnorm' || tree_model == 'ucln') ? 'nelsi_uncor_lnorm' : 'nelsi_kishino')
     def is_external_tree = (is_paper_yule || is_nelsi)
 
     // INDELible specific parameter parsing
@@ -94,6 +96,8 @@ process SIMULATE_DATA {
                     --engine nelsi \\
                     --nelsi_v ${nelsi_v} \\
                     --nelsi_initial_rate ${nelsi_initial_rate} \\
+                    --nelsi_mean_log ${nelsi_mean_log} \\
+                    --nelsi_sd_log ${nelsi_sd_log} \\
                     --nelsi_scale_mode ${nelsi_scale_mode} \\
                     --lba_ratio ${lba_ratio} \\
                     --outtree true_tree_\${rep}.nwk

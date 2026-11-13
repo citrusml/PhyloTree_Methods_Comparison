@@ -20,6 +20,7 @@ process RUN_TRUE_MSA_NJ {
     path("chunk_true_msa_nj_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("true_msa_nj_*.nwk")
     path("true_msa_matrix_*.phylip")
+    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("true_msa_nj_*.nwk"), path("true_msa_matrix_*.phylip"), emit: nni_input
 
     script:
     """

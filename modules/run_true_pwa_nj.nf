@@ -20,6 +20,7 @@ process RUN_TRUE_PWA_NJ {
     path("chunk_true_pwa_nj_D${dist}_L${len}_chk${chunk_id}.csv"), emit: csv
     path("true_pwa_nj_*.nwk")
     path("true_pwa_matrix_*.phylip")
+    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("true_pwa_nj_*.nwk"), path("true_pwa_matrix_*.phylip"), emit: nni_input
 
     script:
     """

@@ -23,6 +23,7 @@ process RUN_MMSEQS_NJ {
     path("mmseqs_nj_*.nwk")
     path("mmseqs_matrix_*.phylip")
     path("mmseqs_meta_*.json")
+    tuple val(dist), val(len), val(chunk_id), val(rep_start), val(rep_end), path(true_trees), path("mmseqs_nj_*.nwk"), path("mmseqs_matrix_*.phylip"), emit: nni_input
 
     script:
     def nj_tool     = params.containsKey('nj_tool') ? params.nj_tool : 'rapidnj'

@@ -466,13 +466,15 @@ def generate_tree_with_nelsi(
     model: str = "nelsi_kishino",
     v: float = 0.3,
     initial_rate: float = 1.0,
+    mean_log: float = 0.0,
+    sd_log: float = 0.5,
     scale_mode: str = "root_to_tip",
     lba_ratio: float = 1.0,
     min_length: float = 1e-6,
     outtree: Optional[str] = None,
 ) -> str:
     """
-    Generates a Yule-topology phylogenetic tree with autocorrelated branch lengths
+    Generates a Yule-topology phylogenetic tree with relaxed-clock branch lengths
     strictly using the R package NELSI via ``bin/generate_tree_nelsi.R`` (no fallback).
 
     Parameters
@@ -484,12 +486,17 @@ def generate_tree_with_nelsi(
     seed : Optional[int], default=None
         Random seed for R RNG reproducibility [unitless].
     model : str, default='nelsi_kishino'
-        NELSI autocorrelation model: ``'nelsi_kishino'`` (or ``'nelsi'``, ``'kishino'``)
-        or ``'nelsi_thorne'`` (or ``'thorne'``).
+        NELSI model: ``'nelsi_kishino'`` (or ``'nelsi'``, ``'kishino'``),
+        ``'nelsi_thorne'`` (or ``'thorne'``), or ``'nelsi_uncor_lnorm'``
+        (or ``'uncor_lnorm'``, ``'ucln'``).
     v : float, default=0.3
         NELSI autocorrelation variance parameter v [unitless]. Must be >= 0.
     initial_rate : float, default=1.0
         NELSI initial root substitution rate [substitutions/site/unit time]. Must be > 0.
+    mean_log : float, default=0.0
+        Mean on log scale for ``nelsi_uncor_lnorm`` [log(rate)].
+    sd_log : float, default=0.5
+        Standard deviation on log scale for ``nelsi_uncor_lnorm`` [log(rate)]. Must be >= 0.
     scale_mode : str, default='root_to_tip'
         How ``scale`` is applied to the NELSI phylogram: ``'root_to_tip'`` (mean
         root-to-tip distance equals ``scale``), ``'mean_branch'`` (mean branch length
@@ -514,6 +521,8 @@ def generate_tree_with_nelsi(
         raise ValueError(f"NELSI autocorrelation parameter v must be non-negative, got {v}")
     if initial_rate <= 0.0:
         raise ValueError(f"NELSI initial_rate must be strictly positive, got {initial_rate}")
+    if sd_log < 0.0:
+        raise ValueError(f"NELSI sd_log must be non-negative, got {sd_log}")
     if scale_mode not in ("root_to_tip", "mean_branch", "raw"):
         raise ValueError(f"Unsupported scale_mode '{scale_mode}'. Must be 'root_to_tip', 'mean_branch', or 'raw'.")
 
@@ -545,6 +554,8 @@ def generate_tree_with_nelsi(
         "--model", str(model),
         "--v", str(v),
         "--initial_rate", str(initial_rate),
+        "--mean_log", str(mean_log),
+        "--sd_log", str(sd_log),
         "--scale_mode", str(scale_mode),
         "--lba_ratio", str(lba_ratio),
         "--min_length", str(min_length),
@@ -579,12 +590,14 @@ def generate_nelsi_yule_tree(
     model: str = "nelsi_kishino",
     v: float = 0.3,
     initial_rate: float = 1.0,
+    mean_log: float = 0.0,
+    sd_log: float = 0.5,
     scale_mode: str = "root_to_tip",
     lba_ratio: float = 1.0,
     min_length: float = 1e-6,
 ) -> str:
     """
-    Public wrapper to generate a Yule-topology tree with NELSI autocorrelated branch lengths.
+    Public wrapper to generate a Yule-topology tree with NELSI relaxed-clock branch lengths.
 
     Parameters
     ----------
@@ -595,11 +608,15 @@ def generate_nelsi_yule_tree(
     seed : Optional[int], default=None
         Random seed for reproducibility [unitless].
     model : str, default='nelsi_kishino'
-        NELSI model: ``'nelsi_kishino'`` or ``'nelsi_thorne'``.
+        NELSI model: ``'nelsi_kishino'``, ``'nelsi_thorne'``, or ``'nelsi_uncor_lnorm'``.
     v : float, default=0.3
         NELSI autocorrelation variance parameter v [unitless].
     initial_rate : float, default=1.0
         NELSI initial root substitution rate [substitutions/site/unit time].
+    mean_log : float, default=0.0
+        Mean on log scale for ``nelsi_uncor_lnorm`` [log(rate)].
+    sd_log : float, default=0.5
+        Standard deviation on log scale for ``nelsi_uncor_lnorm`` [log(rate)].
     scale_mode : str, default='root_to_tip'
         Scaling mode: ``'root_to_tip'``, ``'mean_branch'``, or ``'raw'``.
     lba_ratio : float, default=1.0
@@ -619,6 +636,8 @@ def generate_nelsi_yule_tree(
         model=model,
         v=v,
         initial_rate=initial_rate,
+        mean_log=mean_log,
+        sd_log=sd_log,
         scale_mode=scale_mode,
         lba_ratio=lba_ratio,
         min_length=min_length,
@@ -652,7 +671,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        choices=["paper_yule", "yule", "nelsi_kishino", "nelsi_thorne", "nelsi"],
+        choices=["paper_yule", "yule", "nelsi_kishino", "nelsi_thorne", "nelsi_uncor_lnorm", "uncor_lnorm", "ucln", "nelsi"],
         default="paper_yule",
         help="Tree generation model (default: paper_yule)",
     )
@@ -681,6 +700,18 @@ def main() -> None:
         help="NELSI initial root substitution rate (default: 1.0)",
     )
     parser.add_argument(
+        "--nelsi_mean_log",
+        type=float,
+        default=0.0,
+        help="NELSI uncor.lnorm mean.log parameter (default: 0.0)",
+    )
+    parser.add_argument(
+        "--nelsi_sd_log",
+        type=float,
+        default=0.5,
+        help="NELSI uncor.lnorm sd.log parameter (default: 0.5)",
+    )
+    parser.add_argument(
         "--nelsi_scale_mode",
         choices=["root_to_tip", "mean_branch", "raw"],
         default="root_to_tip",
@@ -706,7 +737,9 @@ def main() -> None:
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
-    is_nelsi_model = args.model in ("nelsi_kishino", "nelsi_thorne", "nelsi")
+    is_nelsi_model = args.model in (
+        "nelsi_kishino", "nelsi_thorne", "nelsi_uncor_lnorm", "uncor_lnorm", "ucln", "nelsi"
+    )
 
     # Determine execution engine
     chosen_engine = args.engine
@@ -741,6 +774,8 @@ def main() -> None:
             model=args.model,
             v=args.nelsi_v,
             initial_rate=args.nelsi_initial_rate,
+            mean_log=args.nelsi_mean_log,
+            sd_log=args.nelsi_sd_log,
             scale_mode=args.nelsi_scale_mode,
             lba_ratio=args.lba_ratio,
             outtree=args.outtree,
