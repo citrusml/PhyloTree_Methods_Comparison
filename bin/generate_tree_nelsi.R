@@ -248,11 +248,20 @@ if (opts$lba_ratio > 1.0) {
 phylogram$edge.length <- pmax(phylogram$edge.length, opts$min_length)
 
 # 6. Ensure destination directory exists and write Newick file
+#    Convert any scientific notation branch lengths (e.g., 1.25e-05) to fixed-point
+#    decimals because INDELible V1.03 rejects 'e' in guide tree branch lengths.
 out_dir <- dirname(opts$outtree)
 if (out_dir != "." && !dir.exists(out_dir)) {
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 }
-ape::write.tree(phylogram, file = opts$outtree)
+nwk_str <- ape::write.tree(phylogram, file = "")
+sci_matches <- gregexpr(":[0-9]+(\\.[0-9]+)?[eE][+-]?[0-9]+", nwk_str, perl = TRUE)
+matched_tokens <- regmatches(nwk_str, sci_matches)[[1]]
+if (length(matched_tokens) > 0L) {
+  vals <- as.numeric(sub("^:", "", matched_tokens))
+  regmatches(nwk_str, sci_matches) <- list(sprintf(":%.10f", vals))
+}
+writeLines(nwk_str, con = opts$outtree)
 
 cat(sprintf(
   "Generated %s tree [NELSI] (%d taxa, scale=%.6g, v=%.6g, initial_rate=%.6g, scale_mode=%s, seed=%s) -> %s\n",
