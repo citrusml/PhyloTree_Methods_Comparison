@@ -61,6 +61,47 @@ def _sanitize_newick_for_fastme(nj_tree_path: str, tmp_dir: str) -> str:
     return sanitized_path
 
 
+def _sanitize_phylip_matrix(matrix_file: str, tmp_dir: str) -> str:
+    """
+    Sanitize a PHYLIP distance matrix for FastME by clamping negative zero
+    ('-0.000000') or tiny negative floating-point distances to '0.000000'.
+
+    Parameters
+    ----------
+    matrix_file : str
+        Path to the input PHYLIP distance matrix (pairwise distances, unitless).
+    tmp_dir : str
+        Temporary directory to store the sanitized PHYLIP matrix.
+
+    Returns
+    -------
+    str
+        Path to the sanitized PHYLIP matrix file.
+    """
+    out_lines = []
+    with open(matrix_file, "r", encoding="utf-8") as fh:
+        for idx, line in enumerate(fh):
+            stripped = line.strip()
+            if idx == 0 or not stripped:
+                out_lines.append(line.rstrip("\r\n"))
+                continue
+            parts = stripped.split()
+            taxon = parts[0]
+            cleaned_vals = []
+            for tok in parts[1:]:
+                if tok.startswith("-"):
+                    val = max(0.0, float(tok))
+                    cleaned_vals.append(f"{val:.6f}")
+                else:
+                    cleaned_vals.append(tok)
+            out_lines.append(taxon + " " + " ".join(cleaned_vals))
+
+    sanitized_path = os.path.join(tmp_dir, "sanitized.phylip")
+    with open(sanitized_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out_lines) + "\n")
+    return sanitized_path
+
+
 def run_fastme_nni(
     matrix_file: str,
     outtree_file: str,
@@ -97,6 +138,7 @@ def run_fastme_nni(
         os.makedirs(out_dir, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
+        clean_matrix = _sanitize_phylip_matrix(matrix_file, tmp_dir)
         ran_ok = False
         last_err = ""
 
@@ -104,7 +146,7 @@ def run_fastme_nni(
             clean_nj = _sanitize_newick_for_fastme(nj_tree_file, tmp_dir)
             cmd_user = [
                 fastme_exe,
-                "-i", matrix_file,
+                "-i", clean_matrix,
                 "-u", clean_nj,
                 "-o", outtree_file,
                 "-n", nni_type,
@@ -119,7 +161,7 @@ def run_fastme_nni(
         if not ran_ok:
             cmd_nj_nni = [
                 fastme_exe,
-                "-i", matrix_file,
+                "-i", clean_matrix,
                 "-o", outtree_file,
                 "-m", "N",
                 "-n", nni_type,
