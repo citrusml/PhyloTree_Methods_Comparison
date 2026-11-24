@@ -30,11 +30,11 @@ nextflow.enable.dsl=2
 // モジュールのインポート
 include { SIMULATE_DATA }    from './modules/simulate_data'
 include { RUN_PWA_NJ }       from './modules/run_pwa_nj'
-include { RUN_MMSEQS_NJ }    from './modules/run_mmseqs_nj'
+include { RUN_MMSEQS_NJ; RUN_MMSEQS_LOG_NJ } from './modules/run_mmseqs_nj'
 include { RUN_MAFFT }        from './modules/run_mafft'
 include { RUN_MAFFT_LINSI }  from './modules/run_mafft_linsi'
 include { RUN_MSA_NJ }       from './modules/run_msa_nj'
-include { RUN_MSA_ML }       from './modules/run_msa_ml'
+include { RUN_MSA_ML; RUN_MSA_ML_WAG } from './modules/run_msa_ml'
 include { RUN_MSA_RAXML }    from './modules/run_msa_raxml'
 include { RUN_MSA_BI }       from './modules/run_msa_bi'
 include { RUN_MSA_NJ_LINSI } from './modules/run_msa_nj_linsi'
@@ -81,11 +81,13 @@ workflow {
     ch_true_msa_data = SIMULATE_DATA.out.true_msa_data   // 常に取得（filter で制御）
 
     // --- フラグ評価（全スイッチを事前に確定） ---
-    def do_pwa_nj      = asBool(params.containsKey('run_pwa_nj') ? params.run_pwa_nj : true, true)
-    def do_mmseqs_nj   = asBool(params.containsKey('run_mmseqs_nj') ? params.run_mmseqs_nj : false, false)
-    def do_msa_nj      = asBool(params.containsKey('run_msa_nj') ? params.run_msa_nj : true, true)
-    def do_nj_nni      = asBool(params.containsKey('run_nj_nni') ? params.run_nj_nni : false, false)
-    def do_msa_ml      = asBool(params.containsKey('run_msa_ml') ? params.run_msa_ml : true, true)
+    def do_pwa_nj        = asBool(params.containsKey('run_pwa_nj') ? params.run_pwa_nj : true, true)
+    def do_mmseqs_nj     = asBool(params.containsKey('run_mmseqs_nj') ? params.run_mmseqs_nj : false, false)
+    def do_mmseqs_log_nj = asBool(params.containsKey('run_mmseqs_log_nj') ? params.run_mmseqs_log_nj : false, false)
+    def do_msa_nj        = asBool(params.containsKey('run_msa_nj') ? params.run_msa_nj : true, true)
+    def do_nj_nni        = asBool(params.containsKey('run_nj_nni') ? params.run_nj_nni : false, false)
+    def do_msa_ml        = asBool(params.containsKey('run_msa_ml') ? params.run_msa_ml : true, true)
+    def do_msa_ml_wag    = asBool(params.containsKey('run_msa_ml_wag') ? params.run_msa_ml_wag : false, false)
     def do_msa_raxml   = asBool(params.containsKey('run_msa_raxml') ? params.run_msa_raxml : false, false)
     def do_msa_linsi   = asBool(params.containsKey('run_msa_linsi') ? params.run_msa_linsi : false, false)
     // run_msa_bi と run_bi（エイリアス）のどちらかが true なら有効（OR ロジック）
@@ -130,9 +132,13 @@ workflow {
             ch_nni_inputs = ch_nni_inputs.mix(RUN_MMSEQS_NJ.out.nni_input.map { it + ['mmseqs', 'MMSEQS+NJ+NNI'] })
         }
     }
+    if (do_mmseqs_log_nj) {
+        RUN_MMSEQS_LOG_NJ(ch_sim_data)
+        ch_all_csvs = ch_all_csvs.mix(RUN_MMSEQS_LOG_NJ.out.csv)
+    }
 
     // 2. MAFFT --auto + MSA系（需要があるときのみ MAFFT を実行）
-    def need_mafft = do_msa_nj || do_msa_ml || do_msa_raxml || do_msa_bi || do_calc_sp
+    def need_mafft = do_msa_nj || do_msa_ml || do_msa_ml_wag || do_msa_raxml || do_msa_bi || do_calc_sp
     if (need_mafft) {
         RUN_MAFFT(ch_sim_data)
         ch_msa_data = RUN_MAFFT.out.msa_data
@@ -165,6 +171,10 @@ workflow {
     if (need_mafft && do_msa_ml) {
         RUN_MSA_ML(RUN_MAFFT.out.msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MSA_ML.out.csv)
+    }
+    if (need_mafft && do_msa_ml_wag) {
+        RUN_MSA_ML_WAG(RUN_MAFFT.out.msa_data)
+        ch_all_csvs = ch_all_csvs.mix(RUN_MSA_ML_WAG.out.csv)
     }
     if (need_mafft && do_msa_raxml) {
         RUN_MSA_RAXML(RUN_MAFFT.out.msa_data)
