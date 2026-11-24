@@ -1,0 +1,972 @@
+"""
+AddNJ: Additivity-based Neighbor-Joining Phylogenetic Tree Reconstruction.
+
+Reconstructs phylogenetic trees from distance matrices by greedily minimizing
+the four-point condition relative additivity defect (Delta_ADD) during
+matrix reduction steps.
+"""
+
+from typing import List, Tuple, Dict, Optional, Any
+import itertools
+import numpy as np
+
+
+class TreeNode:
+    """
+    Representation of a node in a phylogenetic tree.
+
+    Parameters
+    ----------
+    name : str
+        Taxon name for leaf nodes, or internal node identifier (unitless).
+    children : Optional[List[Tuple['TreeNode', float]]], default=None
+        List of child node and branch length pairs (branch length in substitutions/site).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        children: Optional[List[Tuple["TreeNode", float]]] = None,
+    ) -> None:
+        self.name: str = name
+        self.children: List[Tuple["TreeNode", float]] = children if children is not None else []
+
+    def is_leaf(self) -> bool:
+        """
+        Checks whether the node is a leaf (terminal taxon).
+
+        Returns
+        -------
+        bool
+            True if leaf, False otherwise (unitless).
+        """
+        return len(self.children) == 0
+
+    def to_newick(self) -> str:
+        """
+        Recursively converts the subtree rooted at this node to Newick format.
+
+        Returns
+        -------
+        str
+            Newick formatted representation of the subtree.
+        """
+        if self.is_leaf():
+            return self.name
+
+        sub_strs: List[str] = []
+        for child, length in self.children:
+            sub_strs.append(f"{child.to_newick()}:{max(0.0, float(length)):.6f}")
+        return f"({','.join(sub_strs)})"
+
+
+class QuartetCache:
+    """
+    Precomputed quartet combinations for matrix dimensions m = 4 to max_taxa.
+
+    Parameters
+    ----------
+    max_taxa : int
+        Maximum number of taxa (unitless).
+    """
+
+    def __init__(self, max_taxa: int) -> None:
+        self.cache: Dict[int, np.ndarray] = {}
+        for m in range(4, max_taxa + 1):
+            combos = list(itertools.combinations(range(m), 4))
+            self.cache[m] = np.array(combos, dtype=np.int64)
+
+    def get_quartets(self, m: int) -> np.ndarray:
+        """
+        Retrieves quartet index array of shape (n_quartets, 4) for dimension m.
+
+        Parameters
+        ----------
+        m : int
+            Dimension of square distance matrix (unitless).
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape (n_quartets, 4) containing taxon indices (unitless).
+        """
+        if m not in self.cache:
+            combos = list(itertools.combinations(range(m), 4))
+            self.cache[m] = np.array(combos, dtype=np.int64)
+        return self.cache[m]
+
+
+def compute_additivity_defect_fast(
+    D: np.ndarray,
+    quartets: np.ndarray,
+    eps: float = 1e-7,
+) -> float:
+    """
+    Computes mean relative additivity defect Delta_ADD for a distance matrix.
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Distance matrix of shape (m, m) in substitutions/site.
+    quartets : np.ndarray
+        Quartet index array of shape (Q, 4) (unitless).
+    eps : float, default=1e-7
+        Numerical epsilon to avoid division by zero (unitless).
+
+    Returns
+    -------
+    float
+        Mean relative additivity defect Delta_ADD (unitless).
+    """
+    if len(quartets) == 0:
+        return 0.0
+
+    i = quartets[:, 0]
+    j = quartets[:, 1]
+    k = quartets[:, 2]
+    l = quartets[:, 3]
+
+    s1 = D[i, j] + D[k, l]
+    s2 = D[i, k] + D[j, l]
+    s3 = D[i, l] + D[j, k]
+
+    sums = np.stack([s1, s2, s3], axis=1)
+    sorted_sums = np.sort(sums, axis=1)  # Ascending: C <= B <= A
+    A = sorted_sums[:, 2]
+    B = sorted_sums[:, 1]
+
+    delta = (A - B) / (A + eps)
+    return float(np.mean(delta))
+
+
+def add_nj(
+    D: np.ndarray,
+    taxa_names: List[str],
+    eps: float = 1e-7,
+    tie_tolerance: float = 1e-6,
+) -> str:
+    """
+    Constructs a phylogenetic tree Newick string using the AddNJ algorithm.
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Symmetric evolutionary distance matrix of shape (n, n) in substitutions/site.
+    taxa_names : List[str]
+        Identifiers for each taxon (unitless).
+    eps : float, default=1e-7
+        Numerical stability constant (unitless).
+    tie_tolerance : float, default=1e-6
+        Tolerance threshold for tie-breaking using the NJ Q-criterion (unitless).
+
+    Returns
+    -------
+    str
+        Unrooted Newick tree string with branch lengths in substitutions/site.
+    """
+    n = len(taxa_names)
+    if n < 3:
+        raise ValueError(f"At least 3 taxa required, got {n}.")
+
+    curr_D = np.copy(D).astype(np.float64)
+    nodes: List[TreeNode] = [TreeNode(name=name) for name in taxa_names]
+    internal_id = 1
+    quartet_cache = QuartetCache(max_taxa=n)
+
+    # Iterative reduction while m > 4
+    while len(nodes) > 4:
+        m = len(nodes)
+        q_sub = quartet_cache.get_quartets(m - 1)
+        r = np.sum(curr_D, axis=1)
+
+        best_score = float("inf")
+        best_q = float("inf")
+        best_pair: Tuple[int, int] = (0, 1)
+
+        # Evaluate all candidate pairs (a, b)
+        for a in range(m):
+            for b in range(a + 1, m):
+                rem_idx = [x for x in range(m) if x != a and x != b]
+                d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+                D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+                D_prime = np.zeros((m - 1, m - 1), dtype=np.float64)
+                D_prime[: m - 2, : m - 2] = D_sub
+                D_prime[m - 2, : m - 2] = d_u
+                D_prime[: m - 2, m - 2] = d_u
+
+                score = compute_additivity_defect_fast(D_prime, q_sub, eps=eps)
+                q_val = (m - 2) * curr_D[a, b] - r[a] - r[b]
+
+                if score < best_score - tie_tolerance:
+                    best_score = score
+                    best_q = q_val
+                    best_pair = (a, b)
+                elif abs(score - best_score) <= tie_tolerance:
+                    if q_val < best_q:
+                        best_score = score
+                        best_q = q_val
+                        best_pair = (a, b)
+
+        a, b = best_pair
+        # Calculate NJ branch lengths from nodes a and b to parent u
+        r = np.sum(curr_D, axis=1)
+        r_a = r[a]
+        r_b = r[b]
+        d_ab = curr_D[a, b]
+
+        v_a = 0.5 * d_ab + (r_a - r_b) / (2.0 * (m - 2))
+        v_b = d_ab - v_a
+
+        # Create new parent node
+        node_u = TreeNode(
+            name=f"Node_{internal_id}",
+            children=[(nodes[a], float(v_a)), (nodes[b], float(v_b))],
+        )
+        internal_id += 1
+
+        # Form permanent reduced distance matrix and update node list
+        rem_idx = [x for x in range(m) if x != a and x != b]
+        d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+        D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+        new_D = np.zeros((m - 1, m - 1), dtype=np.float64)
+        new_D[: m - 2, : m - 2] = D_sub
+        new_D[m - 2, : m - 2] = d_u
+        new_D[: m - 2, m - 2] = d_u
+
+        new_nodes: List[TreeNode] = [nodes[x] for x in rem_idx]
+        new_nodes.append(node_u)
+
+        curr_D = new_D
+        nodes = new_nodes
+
+    # When m == 4, choose pair minimizing quartet sum
+    if len(nodes) == 4:
+        s1 = curr_D[0, 1] + curr_D[2, 3]
+        s2 = curr_D[0, 2] + curr_D[1, 3]
+        s3 = curr_D[0, 3] + curr_D[1, 2]
+
+        if s1 <= s2 and s1 <= s3:
+            a, b = 0, 1
+        elif s2 <= s1 and s2 <= s3:
+            a, b = 0, 2
+        else:
+            a, b = 0, 3
+
+        r = np.sum(curr_D, axis=1)
+        r_a = r[a]
+        r_b = r[b]
+        d_ab = curr_D[a, b]
+        v_a = 0.5 * d_ab + (r_a - r_b) / 4.0
+        v_b = d_ab - v_a
+
+        node_u = TreeNode(
+            name=f"Node_{internal_id}",
+            children=[(nodes[a], float(v_a)), (nodes[b], float(v_b))],
+        )
+        internal_id += 1
+
+        rem_idx = [x for x in range(4) if x != a and x != b]
+        d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+        D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+        new_D = np.zeros((3, 3), dtype=np.float64)
+        new_D[:2, :2] = D_sub
+        new_D[2, :2] = d_u
+        new_D[:2, 2] = d_u
+
+        new_nodes = [nodes[x] for x in rem_idx]
+        new_nodes.append(node_u)
+
+        curr_D = new_D
+        nodes = new_nodes
+
+    # When m == 3, resolve central 3-taxon star root
+    if len(nodes) == 3:
+        d01 = curr_D[0, 1]
+        d02 = curr_D[0, 2]
+        d12 = curr_D[1, 2]
+
+        v0 = 0.5 * (d01 + d02 - d12)
+        v1 = 0.5 * (d01 + d12 - d02)
+        v2 = 0.5 * (d02 + d12 - d01)
+
+        root = TreeNode(
+            name="Root",
+            children=[
+                (nodes[0], float(v0)),
+                (nodes[1], float(v1)),
+                (nodes[2], float(v2)),
+            ],
+        )
+        return root.to_newick() + ";"
+
+    raise RuntimeError(f"Unexpected termination state with {len(nodes)} nodes.")
+
+
+def add_nj2(
+    D: np.ndarray,
+    taxa_names: List[str],
+    eps: float = 1e-7,
+    tie_tolerance: float = 1e-6,
+) -> str:
+    """
+    Constructs a phylogenetic tree Newick string using the AddNJ2 algorithm.
+
+    Selects joining pairs by minimizing Sister-Pair Quartet Inconsistency:
+    for candidate pair (a, b), evaluates all other pairs (k, l) to verify
+    whether D_ab + D_kl <= min(D_ak + D_bl, D_al + D_bk).
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Symmetric evolutionary distance matrix of shape (n, n) in substitutions/site.
+    taxa_names : List[str]
+        Identifiers for each taxon (unitless).
+    eps : float, default=1e-7
+        Numerical stability constant (unitless).
+    tie_tolerance : float, default=1e-6
+        Tolerance threshold for tie-breaking using the NJ Q-criterion (unitless).
+
+    Returns
+    -------
+    str
+        Unrooted Newick tree string with branch lengths in substitutions/site.
+    """
+    n = len(taxa_names)
+    if n < 3:
+        raise ValueError(f"At least 3 taxa required, got {n}.")
+
+    curr_D = np.copy(D).astype(np.float64)
+    nodes: List[TreeNode] = [TreeNode(name=name) for name in taxa_names]
+    internal_id = 1
+
+    while len(nodes) > 4:
+        m = len(nodes)
+        r = np.sum(curr_D, axis=1)
+        all_indices = list(range(m))
+
+        best_score = float("inf")
+        best_q = float("inf")
+        best_pair: Tuple[int, int] = (0, 1)
+
+        # For large m, pre-screen top candidate pairs using NJ Q-matrix
+        triu_i, triu_j = np.triu_indices(m, k=1)
+        q_vals = (m - 2) * curr_D[triu_i, triu_j] - r[triu_i] - r[triu_j]
+
+        if m > 24:
+            k_eval = min(50, len(q_vals))
+            top_indices = np.argpartition(q_vals, k_eval - 1)[:k_eval]
+            candidate_pairs = [(int(triu_i[idx]), int(triu_j[idx]), float(q_vals[idx])) for idx in top_indices]
+        else:
+            candidate_pairs = [(int(triu_i[idx]), int(triu_j[idx]), float(q_vals[idx])) for idx in range(len(q_vals))]
+
+        for a, b, q_val in candidate_pairs:
+            others = [x for x in all_indices if x != a and x != b]
+            pairs_other = list(itertools.combinations(others, 2))
+            if len(pairs_other) > 200:
+                step = len(pairs_other) // 200
+                pairs_other = pairs_other[::step][:200]
+
+            k = np.array([p[0] for p in pairs_other], dtype=np.int64)
+            l = np.array([p[1] for p in pairs_other], dtype=np.int64)
+
+            s1 = curr_D[a, b] + curr_D[k, l]
+            s2 = curr_D[a, k] + curr_D[b, l]
+            s3 = curr_D[a, l] + curr_D[b, k]
+
+            s_min = np.minimum(s1, np.minimum(s2, s3))
+            s_max = np.maximum(s1, np.maximum(s2, s3))
+
+            penalty = (s1 - s_min) / (s_max + eps)
+            score = float(np.mean(penalty))
+
+            if score < best_score - tie_tolerance:
+                best_score = score
+                best_q = q_val
+                best_pair = (a, b)
+            elif abs(score - best_score) <= tie_tolerance:
+                if q_val < best_q:
+                    best_score = score
+                    best_q = q_val
+                    best_pair = (a, b)
+
+        a, b = best_pair
+        r = np.sum(curr_D, axis=1)
+        r_a = r[a]
+        r_b = r[b]
+        d_ab = curr_D[a, b]
+
+        v_a = 0.5 * d_ab + (r_a - r_b) / (2.0 * (m - 2))
+        v_b = d_ab - v_a
+
+        node_u = TreeNode(
+            name=f"Node_{internal_id}",
+            children=[(nodes[a], float(v_a)), (nodes[b], float(v_b))],
+        )
+        internal_id += 1
+
+        rem_idx = [x for x in range(m) if x != a and x != b]
+        d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+        D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+        new_D = np.zeros((m - 1, m - 1), dtype=np.float64)
+        new_D[: m - 2, : m - 2] = D_sub
+        new_D[m - 2, : m - 2] = d_u
+        new_D[: m - 2, m - 2] = d_u
+
+        new_nodes: List[TreeNode] = [nodes[x] for x in rem_idx]
+        new_nodes.append(node_u)
+
+        curr_D = new_D
+        nodes = new_nodes
+
+    if len(nodes) == 4:
+        s1 = curr_D[0, 1] + curr_D[2, 3]
+        s2 = curr_D[0, 2] + curr_D[1, 3]
+        s3 = curr_D[0, 3] + curr_D[1, 2]
+
+        if s1 <= s2 and s1 <= s3:
+            a, b = 0, 1
+        elif s2 <= s1 and s2 <= s3:
+            a, b = 0, 2
+        else:
+            a, b = 0, 3
+
+        r = np.sum(curr_D, axis=1)
+        r_a = r[a]
+        r_b = r[b]
+        d_ab = curr_D[a, b]
+        v_a = 0.5 * d_ab + (r_a - r_b) / 4.0
+        v_b = d_ab - v_a
+
+        node_u = TreeNode(
+            name=f"Node_{internal_id}",
+            children=[(nodes[a], float(v_a)), (nodes[b], float(v_b))],
+        )
+        internal_id += 1
+
+        rem_idx = [x for x in range(4) if x != a and x != b]
+        d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+        D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+        new_D = np.zeros((3, 3), dtype=np.float64)
+        new_D[:2, :2] = D_sub
+        new_D[2, :2] = d_u
+        new_D[:2, 2] = d_u
+
+        new_nodes = [nodes[x] for x in rem_idx]
+        new_nodes.append(node_u)
+
+        curr_D = new_D
+        nodes = new_nodes
+
+    if len(nodes) == 3:
+        d01 = curr_D[0, 1]
+        d02 = curr_D[0, 2]
+        d12 = curr_D[1, 2]
+
+        v0 = 0.5 * (d01 + d02 - d12)
+        v1 = 0.5 * (d01 + d12 - d02)
+        v2 = 0.5 * (d02 + d12 - d01)
+
+        root = TreeNode(
+            name="Root",
+            children=[
+                (nodes[0], float(v0)),
+                (nodes[1], float(v1)),
+                (nodes[2], float(v2)),
+            ],
+        )
+        return root.to_newick() + ";"
+
+    raise RuntimeError(f"Unexpected termination state with {len(nodes)} nodes.")
+
+
+def _reduce_distance_matrix(
+    curr_D: np.ndarray,
+    a: int,
+    b: int,
+) -> Tuple[np.ndarray, List[int]]:
+    """
+    Computes the reduced NJ distance matrix after joining indices a and b.
+
+    Parameters
+    ----------
+    curr_D : np.ndarray
+        Current distance matrix of shape (m, m) in substitutions/site.
+    a : int
+        First taxon/node index to join (unitless).
+    b : int
+        Second taxon/node index to join (unitless).
+
+    Returns
+    -------
+    Tuple[np.ndarray, List[int]]
+        new_D : np.ndarray
+            Reduced distance matrix of shape (m - 1, m - 1) in substitutions/site.
+        rem_idx : List[int]
+            Indices of remaining nodes in original order (unitless).
+    """
+    m = curr_D.shape[0]
+    rem_idx = [x for x in range(m) if x != a and x != b]
+    d_u = 0.5 * (curr_D[a, rem_idx] + curr_D[b, rem_idx] - curr_D[a, b])
+    D_sub = curr_D[np.ix_(rem_idx, rem_idx)]
+
+    new_D = np.zeros((m - 1, m - 1), dtype=np.float64)
+    new_D[: m - 2, : m - 2] = D_sub
+    new_D[m - 2, : m - 2] = d_u
+    new_D[: m - 2, m - 2] = d_u
+    return new_D, rem_idx
+
+
+def _score_splits_patristic_rmse(
+    splits: List[np.ndarray],
+    A_leaf: np.ndarray,
+    d_vec: np.ndarray,
+    triu_i: np.ndarray,
+    triu_j: np.ndarray,
+    reg: float = 1e-12,
+) -> float:
+    """
+    Computes the RMSE between tree-induced patristic distances (via OLS branch lengths)
+    and observed pairwise matrix distances.
+
+    Parameters
+    ----------
+    splits : List[np.ndarray]
+        List of boolean split bitmasks of shape (n,) for internal edges (unitless).
+    A_leaf : np.ndarray
+        Precomputed leaf-edge incidence submatrix of shape (n*(n-1)//2, n) (unitless).
+    d_vec : np.ndarray
+        Flattened upper-triangular observed distance vector in substitutions/site.
+    triu_i : np.ndarray
+        Upper-triangular row indices (unitless).
+    triu_j : np.ndarray
+        Upper-triangular column indices (unitless).
+    reg : float, default=1e-12
+        Tikhonov ridge regularization constant for normal equations (unitless).
+
+    Returns
+    -------
+    float
+        Patristic-vs-observed distance RMSE in substitutions/site.
+    """
+    uniq: Dict[Tuple[bool, ...], np.ndarray] = {}
+    for sp in splits:
+        canon = tuple(~sp) if sp[0] else tuple(sp)
+        if canon not in uniq:
+            uniq[canon] = sp
+
+    if uniq:
+        internal_cols = np.column_stack(
+            [(sp[triu_i] ^ sp[triu_j]).astype(np.float64) for sp in uniq.values()]
+        )
+        A = np.hstack([A_leaf, internal_cols])
+    else:
+        A = A_leaf
+
+    ata = A.T @ A
+    ata[np.diag_indices_from(ata)] += reg
+    atd = A.T @ d_vec
+    try:
+        b_ols = np.linalg.solve(ata, atd)
+    except np.linalg.LinAlgError:
+        b_ols, _, _, _ = np.linalg.lstsq(A, d_vec, rcond=None)
+
+    b_pos = np.maximum(0.0, b_ols)
+    d_tree = A @ b_pos
+    return float(np.sqrt(np.mean((d_tree - d_vec) ** 2)))
+
+
+def _rollout_patristic_score(
+    curr_D: np.ndarray,
+    masks: List[np.ndarray],
+    committed_splits: List[np.ndarray],
+    n_total: int,
+    A_leaf: np.ndarray,
+    d_vec: np.ndarray,
+    triu_i: np.ndarray,
+    triu_j: np.ndarray,
+    depth: int,
+    width: int,
+) -> float:
+    """
+    Evaluates a candidate partial clustering via bounded lookahead and greedy NJ rollout,
+    returning the minimum achievable patristic-vs-observed distance RMSE.
+
+    Parameters
+    ----------
+    curr_D : np.ndarray
+        Current reduced distance matrix of shape (m, m) in substitutions/site.
+    masks : List[np.ndarray]
+        Boolean taxon membership masks for the m active nodes (unitless).
+    committed_splits : List[np.ndarray]
+        Internal bipartition masks accumulated so far (unitless).
+    n_total : int
+        Total number of terminal taxa (unitless).
+    A_leaf : np.ndarray
+        Precomputed leaf-edge incidence submatrix (unitless).
+    d_vec : np.ndarray
+        Flattened upper-triangular observed distance vector in substitutions/site.
+    triu_i : np.ndarray
+        Upper-triangular row indices (unitless).
+    triu_j : np.ndarray
+        Upper-triangular column indices (unitless).
+    depth : int
+        Remaining lookahead recursion depth (unitless).
+    width : int
+        Branching factor (top-k NJ Q-criterion pairs) at each lookahead level (unitless).
+
+    Returns
+    -------
+    float
+        Minimum patristic-vs-observed distance RMSE in substitutions/site.
+    """
+    m = len(masks)
+    if m <= 3 or depth <= 0:
+        D_r = curr_D.copy()
+        m_r = [mk.copy() for mk in masks]
+        sp_r = list(committed_splits)
+
+        while len(m_r) > 3:
+            mm = len(m_r)
+            rr = np.sum(D_r, axis=1)
+            Q = (mm - 2) * D_r - rr[:, None] - rr[None, :]
+            np.fill_diagonal(Q, np.inf)
+            aa, bb = divmod(int(np.argmin(Q)), mm)
+            if aa > bb:
+                aa, bb = bb, aa
+            nm = m_r[aa] | m_r[bb]
+            if 1 < int(np.sum(nm)) < n_total - 1:
+                sp_r.append(nm)
+            D_r, rm = _reduce_distance_matrix(D_r, aa, bb)
+            m_r = [m_r[x] for x in rm] + [nm]
+
+        return _score_splits_patristic_rmse(sp_r, A_leaf, d_vec, triu_i, triu_j)
+
+    r = np.sum(curr_D, axis=1)
+    ti, tj = np.triu_indices(m, k=1)
+    q_vals = (m - 2) * curr_D[ti, tj] - r[ti] - r[tj]
+    order = np.argsort(q_vals)[: min(width, len(q_vals))]
+
+    best_score = float("inf")
+    for idx in order:
+        a, b = int(ti[idx]), int(tj[idx])
+        nm = masks[a] | masks[b]
+        D_next, rem = _reduce_distance_matrix(curr_D, a, b)
+        sp_next = list(committed_splits)
+        if 1 < int(np.sum(nm)) < n_total - 1:
+            sp_next.append(nm)
+        next_masks = [masks[x] for x in rem] + [nm]
+        s = _rollout_patristic_score(
+            D_next,
+            next_masks,
+            sp_next,
+            n_total,
+            A_leaf,
+            d_vec,
+            triu_i,
+            triu_j,
+            depth=depth - 1,
+            width=width,
+        )
+        if s < best_score:
+            best_score = s
+
+    return best_score
+
+
+def add_nj3(
+    D: np.ndarray,
+    taxa_names: List[str],
+    top_k: int = 4,
+    lookahead_depth: int = 1,
+    tie_tolerance: float = 1e-12,
+) -> str:
+    """
+    Constructs a phylogenetic tree Newick string using the AddNJ3 algorithm.
+
+    Selects joining pairs by minimizing the discrepancy (RMSE) between tree-induced
+    patristic distances (fitted via OLS) and the observed distance matrix D, using
+    NJ Q-criterion pre-screening and lookahead rollout completion.
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Symmetric evolutionary distance matrix of shape (n, n) in substitutions/site.
+    taxa_names : List[str]
+        Identifiers for each taxon (unitless).
+    top_k : int, default=4
+        Number of top NJ Q-criterion candidate pairs evaluated per step (unitless).
+    lookahead_depth : int, default=1
+        Lookahead search depth prior to greedy NJ rollout completion (unitless).
+    tie_tolerance : float, default=1e-12
+        Tolerance threshold for tie-breaking using the NJ Q-criterion (unitless).
+
+    Returns
+    -------
+    str
+        Unrooted Newick tree string with branch lengths in substitutions/site.
+    """
+    n = len(taxa_names)
+    if n < 3:
+        raise ValueError(f"At least 3 taxa required, got {n}.")
+
+    curr_D = np.copy(D).astype(np.float64)
+    nodes: List[TreeNode] = [TreeNode(name=name) for name in taxa_names]
+    masks: List[np.ndarray] = [np.eye(n, dtype=bool)[i] for i in range(n)]
+    committed_splits: List[np.ndarray] = []
+
+    triu_i, triu_j = np.triu_indices(n, k=1)
+    d_vec = D[triu_i, triu_j].astype(np.float64)
+    A_leaf = np.column_stack(
+        [(masks[i][triu_i] ^ masks[i][triu_j]).astype(np.float64) for i in range(n)]
+    )
+
+    internal_id = 1
+    while len(nodes) > 3:
+        m = len(nodes)
+        r = np.sum(curr_D, axis=1)
+        ti, tj = np.triu_indices(m, k=1)
+        q_vals = (m - 2) * curr_D[ti, tj] - r[ti] - r[tj]
+        order = np.argsort(q_vals)[: min(top_k, len(q_vals))]
+
+        best_score = float("inf")
+        best_q = float("inf")
+        best_pair: Tuple[int, int] = (int(ti[order[0]]), int(tj[order[0]]))
+
+        for idx in order:
+            a, b = int(ti[idx]), int(tj[idx])
+            q_val = float(q_vals[idx])
+            nm = masks[a] | masks[b]
+            D_next, rem = _reduce_distance_matrix(curr_D, a, b)
+            sp_next = list(committed_splits)
+            if 1 < int(np.sum(nm)) < n - 1:
+                sp_next.append(nm)
+            next_masks = [masks[x] for x in rem] + [nm]
+
+            score = _rollout_patristic_score(
+                D_next,
+                next_masks,
+                sp_next,
+                n,
+                A_leaf,
+                d_vec,
+                triu_i,
+                triu_j,
+                depth=lookahead_depth,
+                width=top_k,
+            )
+
+            if score < best_score - tie_tolerance:
+                best_score = score
+                best_q = q_val
+                best_pair = (a, b)
+            elif abs(score - best_score) <= tie_tolerance:
+                if q_val < best_q:
+                    best_score = score
+                    best_q = q_val
+                    best_pair = (a, b)
+
+        a, b = best_pair
+        d_ab = curr_D[a, b]
+        v_a = 0.5 * d_ab + (r[a] - r[b]) / (2.0 * (m - 2))
+        v_b = d_ab - v_a
+
+        node_u = TreeNode(
+            name=f"Node_{internal_id}",
+            children=[(nodes[a], float(v_a)), (nodes[b], float(v_b))],
+        )
+        internal_id += 1
+
+        nm = masks[a] | masks[b]
+        if 1 < int(np.sum(nm)) < n - 1:
+            committed_splits.append(nm)
+
+        curr_D, rem = _reduce_distance_matrix(curr_D, a, b)
+        nodes = [nodes[x] for x in rem] + [node_u]
+        masks = [masks[x] for x in rem] + [nm]
+
+    d01 = curr_D[0, 1]
+    d02 = curr_D[0, 2]
+    d12 = curr_D[1, 2]
+
+    v0 = 0.5 * (d01 + d02 - d12)
+    v1 = 0.5 * (d01 + d12 - d02)
+    v2 = 0.5 * (d02 + d12 - d01)
+
+    root = TreeNode(
+        name="Root",
+        children=[
+            (nodes[0], float(v0)),
+            (nodes[1], float(v1)),
+            (nodes[2], float(v2)),
+        ],
+    )
+    return root.to_newick() + ";"
+
+
+def _ols_branch_lengths(
+    splits: List[np.ndarray],
+    n: int,
+    d_vec: np.ndarray,
+    triu_i: np.ndarray,
+    triu_j: np.ndarray,
+    reg: float = 1e-12,
+) -> Tuple[np.ndarray, Dict[Tuple[bool, ...], float]]:
+    """
+    Fits non-negative branch lengths (OLS followed by clamping) to a distance vector.
+
+    Parameters
+    ----------
+    splits : List[np.ndarray]
+        Boolean bitmasks of shape (n,) for internal edges (unitless).
+    n : int
+        Number of leaves (unitless).
+    d_vec : np.ndarray
+        Upper-triangular observed distances in substitutions/site.
+    triu_i : np.ndarray
+        Upper-triangular row indices (unitless).
+    triu_j : np.ndarray
+        Upper-triangular column indices (unitless).
+    reg : float, default=1e-12
+        Ridge constant (unitless).
+
+    Returns
+    -------
+    Tuple[np.ndarray, Dict[Tuple[bool, ...], float]]
+        leaf_len : np.ndarray
+            Leaf branch lengths of shape (n,) in substitutions/site.
+        internal_len : Dict[Tuple[bool, ...], float]
+            Canonical split key -> internal branch length in substitutions/site.
+    """
+    uniq: Dict[Tuple[bool, ...], np.ndarray] = {}
+    for sp in splits:
+        canon = tuple(~sp) if sp[0] else tuple(sp)
+        if canon not in uniq:
+            uniq[canon] = sp
+    cols = [(np.eye(n, dtype=bool)[i][triu_i] ^ np.eye(n, dtype=bool)[i][triu_j]).astype(np.float64)
+            for i in range(n)]
+    cols += [(sp[triu_i] ^ sp[triu_j]).astype(np.float64) for sp in uniq.values()]
+    A = np.column_stack(cols)
+    ata = A.T @ A
+    ata[np.diag_indices_from(ata)] += reg
+    try:
+        b = np.linalg.solve(ata, A.T @ d_vec)
+    except np.linalg.LinAlgError:
+        b, _, _, _ = np.linalg.lstsq(A, d_vec, rcond=None)
+    b = np.maximum(0.0, b)
+    internal = {k: float(b[n + t]) for t, k in enumerate(uniq.keys())}
+    return b[:n], internal
+
+
+def _add_nj4_core(
+    D: np.ndarray,
+    taxa_names: List[str],
+    tie_tolerance: float = 1e-12,
+) -> Tuple[str, List[float]]:
+    """
+    Core of ADD-NJ4: star-tree resolution by all-pair RMSD-minimizing joins.
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Symmetric distance matrix of shape (n, n) in substitutions/site.
+    taxa_names : List[str]
+        Taxon identifiers (unitless).
+    tie_tolerance : float, default=1e-12
+        RMSD tolerance for tie-breaking by the NJ Q-criterion (substitutions/site).
+
+    Returns
+    -------
+    Tuple[str, List[float]]
+        Newick string and the RMSD (substitutions/site) of the partially resolved
+        tree at the start and after each join.
+    """
+    n = len(taxa_names)
+    if n < 3:
+        raise ValueError(f"At least 3 taxa required, got {n}.")
+
+    eye = np.eye(n, dtype=bool)
+    masks: List[np.ndarray] = [eye[i] for i in range(n)]
+    # clade structure: ("leaf", idx) or ("node", [child clade structures])
+    clades: List[Any] = [("leaf", i) for i in range(n)]
+    curr_D = np.array(D, dtype=np.float64)
+    committed: List[np.ndarray] = []
+
+    triu_i, triu_j = np.triu_indices(n, k=1)
+    d_vec = np.asarray(D, dtype=np.float64)[triu_i, triu_j]
+    A_leaf = np.column_stack(
+        [(eye[i][triu_i] ^ eye[i][triu_j]).astype(np.float64) for i in range(n)]
+    )
+    history: List[float] = [_score_splits_patristic_rmse([], A_leaf, d_vec, triu_i, triu_j)]
+
+    while len(masks) > 3:
+        m = len(masks)
+        r = np.sum(curr_D, axis=1)
+        best: Tuple[float, float, int, int] = (float("inf"), float("inf"), -1, -1)
+        for a in range(m - 1):
+            for b in range(a + 1, m):
+                nm = masks[a] | masks[b]
+                sp = committed + ([nm] if 1 < int(nm.sum()) < n - 1 else [])
+                score = _score_splits_patristic_rmse(sp, A_leaf, d_vec, triu_i, triu_j)
+                q = (m - 2) * curr_D[a, b] - r[a] - r[b]
+                if score < best[0] - tie_tolerance or (
+                    abs(score - best[0]) <= tie_tolerance and q < best[1]
+                ):
+                    best = (score, q, a, b)
+        score, _, a, b = best
+        nm = masks[a] | masks[b]
+        if 1 < int(nm.sum()) < n - 1:
+            committed.append(nm)
+        new_clade = ("node", [clades[a], clades[b]], nm)
+        curr_D, rem = _reduce_distance_matrix(curr_D, a, b)
+        masks = [masks[x] for x in rem] + [nm]
+        clades = [clades[x] for x in rem] + [new_clade]
+        history.append(score)
+
+    leaf_len, internal_len = _ols_branch_lengths(committed, n, d_vec, triu_i, triu_j)
+
+    def build(c: Any) -> Tuple[TreeNode, float]:
+        if c[0] == "leaf":
+            return TreeNode(taxa_names[c[1]]), float(leaf_len[c[1]])
+        mk = c[2]
+        key = tuple(~mk) if mk[0] else tuple(mk)
+        kids = [build(ch) for ch in c[1]]
+        return TreeNode("Node", children=kids), internal_len.get(key, 0.0)
+
+    top: List[Tuple[TreeNode, float]] = []
+    for c in clades:
+        node, length = build(c)
+        top.append((node, length))
+    root = TreeNode("Root", children=top)
+    return root.to_newick() + ";", history
+
+
+def add_nj4(
+    D: np.ndarray,
+    taxa_names: List[str],
+    tie_tolerance: float = 1e-12,
+) -> str:
+    """
+    Constructs a tree with ADD-NJ4: start from a star tree and repeatedly join
+    the pair of clades whose join minimizes the RMSD between the resulting tree's
+    patristic distances (OLS non-negative branch lengths) and the observed matrix.
+
+    Parameters
+    ----------
+    D : np.ndarray
+        Symmetric distance matrix of shape (n, n) in substitutions/site.
+    taxa_names : List[str]
+        Taxon identifiers (unitless).
+    tie_tolerance : float, default=1e-12
+        RMSD tolerance for tie-breaking by the NJ Q-criterion (substitutions/site).
+
+    Returns
+    -------
+    str
+        Unrooted Newick string; branch lengths in substitutions/site.
+    """
+    return _add_nj4_core(D, taxa_names, tie_tolerance)[0]
