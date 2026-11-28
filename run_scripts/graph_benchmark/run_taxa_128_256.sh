@@ -15,8 +15,16 @@ micromamba activate phylomethod_env
 export PATH="$CONDA_PREFIX/bin:$HOME/bin:$PATH"
 export NELSI_RSCRIPT="${MAMBA_ROOT_PREFIX:-$HOME/.micromamba}/envs/nelsi_env/bin/Rscript"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+if [ -n "${LS_SUBCWD:-}" ] && [ -f "${LS_SUBCWD}/main.nf" ]; then
+    REPO_ROOT="${LS_SUBCWD}"
+elif [ -f "/lustre10/home/citrusml2004/PhyloTree_Methods_Comparison/main.nf" ]; then
+    REPO_ROOT="/lustre10/home/citrusml2004/PhyloTree_Methods_Comparison"
+elif [ -f "${HOME}/PhyloTree_Methods_Comparison/main.nf" ]; then
+    REPO_ROOT="${HOME}/PhyloTree_Methods_Comparison"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+fi
 cd "${REPO_ROOT}"
 
 mkdir -p logs/graph_benchmark results/graph_benchmark
