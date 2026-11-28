@@ -20,13 +20,14 @@ process RUN_NJ_NNI {
 
     script:
     def nni_type = params.containsKey('nj_nni_type') ? params.nj_nni_type : 'B'
+    def spr_flag = (params.containsKey('nj_spr') && params.nj_spr) ? '--spr' : ''
     """
     for rep in \$(seq ${rep_start} ${rep_end}); do
         python3 ${moduleDir}/../bin/run_nj_nni.py \\
             --matrix ${base_prefix}_matrix_\${rep}.phylip \\
             --nj_tree ${base_prefix}_nj_\${rep}.nwk \\
             --outtree ${base_prefix}_nj_nni_\${rep}.nwk \\
-            --nni_type ${nni_type}
+            --nni_type ${nni_type} ${spr_flag}
 
         python3 ${moduleDir}/../bin/evaluate_trees.py \\
             --truetree true_tree_\${rep}.nwk \\

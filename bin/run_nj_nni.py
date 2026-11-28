@@ -107,9 +107,10 @@ def run_fastme_nni(
     outtree_file: str,
     nj_tree_file: Optional[str] = None,
     nni_type: str = "B",
+    use_spr: bool = False,
 ) -> None:
     """
-    Run FastME NNI topology refinement starting from an existing NJ tree
+    Run FastME NNI (and optionally SPR) topology refinement starting from an existing NJ tree
     (or building an NJ tree from the distance matrix if omitted/incompatible).
 
     Parameters
@@ -117,11 +118,13 @@ def run_fastme_nni(
     matrix_file : str
         Path to the input PHYLIP distance matrix (pairwise distances, unitless).
     outtree_file : str
-        Path to write the NNI-refined Newick tree (branch lengths in substitutions/site).
+        Path to write the refined Newick tree (branch lengths in substitutions/site).
     nj_tree_file : Optional[str], optional
         Path to an existing starting NJ Newick tree (default: None).
     nni_type : str, optional
         FastME NNI mode: 'B' (BalME, default) or 'O' (OLS).
+    use_spr : bool, optional
+        If True, also enable FastME SPR (`-s`) in addition to NNI (default: False).
 
     Returns
     -------
@@ -150,6 +153,7 @@ def run_fastme_nni(
                 "-u", clean_nj,
                 "-o", outtree_file,
                 "-n", nni_type,
+                *(["-s"] if use_spr else []),
                 "-q",
             ]
             res = subprocess.run(cmd_user, capture_output=True, text=True)
@@ -165,6 +169,7 @@ def run_fastme_nni(
                 "-o", outtree_file,
                 "-m", "N",
                 "-n", nni_type,
+                *(["-s"] if use_spr else []),
                 "-q",
             ]
             res = subprocess.run(cmd_nj_nni, capture_output=True, text=True)
@@ -196,12 +201,17 @@ def parse_args() -> argparse.Namespace:
         default="B",
         help="FastME NNI type: B (BalME, default) or O (OLS)",
     )
+    parser.add_argument(
+        "--spr",
+        action="store_true",
+        help="Enable FastME SPR (-s) in addition to NNI",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """
-    CLI entry point for FastME NJ+NNI refinement.
+    CLI entry point for FastME NJ+NNI(+SPR) refinement.
 
     Returns
     -------
@@ -213,6 +223,7 @@ def main() -> None:
         outtree_file=args.outtree,
         nj_tree_file=args.nj_tree,
         nni_type=args.nni_type,
+        use_spr=args.spr,
     )
 
 

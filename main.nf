@@ -114,13 +114,14 @@ workflow {
     }
 
     def ch_nni_inputs = Channel.empty()
+    def nni_suffix = (params.containsKey('nj_spr') && params.nj_spr) ? 'NNI+SPR' : 'NNI'
 
     // 1. PWA+NJ (Needleman-Wunsch)
     if (do_pwa_nj) {
         RUN_PWA_NJ(ch_sim_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_PWA_NJ.out.csv)
         if (do_nj_nni) {
-            ch_nni_inputs = ch_nni_inputs.mix(RUN_PWA_NJ.out.nni_input.map { it + ['pwa', 'PWA+NJ+NNI'] })
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_PWA_NJ.out.nni_input.map { it + ['pwa', "PWA+NJ+${nni_suffix}"] })
         }
     }
 
@@ -129,7 +130,7 @@ workflow {
         RUN_MMSEQS_NJ(ch_sim_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MMSEQS_NJ.out.csv)
         if (do_nj_nni) {
-            ch_nni_inputs = ch_nni_inputs.mix(RUN_MMSEQS_NJ.out.nni_input.map { it + ['mmseqs', 'MMSEQS+NJ+NNI'] })
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_MMSEQS_NJ.out.nni_input.map { it + ['mmseqs', "MMSEQS+NJ+${nni_suffix}"] })
         }
     }
     if (do_mmseqs_log_nj) {
@@ -165,7 +166,7 @@ workflow {
         RUN_MSA_NJ(RUN_MAFFT.out.msa_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_MSA_NJ.out.csv)
         if (do_nj_nni) {
-            ch_nni_inputs = ch_nni_inputs.mix(RUN_MSA_NJ.out.nni_input.map { it + ['msa', 'MSA+NJ+NNI'] })
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_MSA_NJ.out.nni_input.map { it + ['msa', "MSA+NJ+${nni_suffix}"] })
         }
     }
     if (need_mafft && do_msa_ml) {
