@@ -29,7 +29,7 @@ nextflow.enable.dsl=2
 
 // モジュールのインポート
 include { SIMULATE_DATA }    from './modules/simulate_data'
-include { RUN_PWA_NJ }       from './modules/run_pwa_nj'
+include { RUN_PWA_NJ; RUN_PWA_LOCAL_NJ } from './modules/run_pwa_nj'
 include { RUN_MMSEQS_NJ; RUN_MMSEQS_LOG_NJ } from './modules/run_mmseqs_nj'
 include { RUN_MAFFT }        from './modules/run_mafft'
 include { RUN_MAFFT_LINSI }  from './modules/run_mafft_linsi'
@@ -82,6 +82,7 @@ workflow {
 
     // --- フラグ評価（全スイッチを事前に確定） ---
     def do_pwa_nj        = asBool(params.containsKey('run_pwa_nj') ? params.run_pwa_nj : true, true)
+    def do_pwa_local_nj  = asBool(params.containsKey('run_pwa_local_nj') ? params.run_pwa_local_nj : false, false)
     def do_mmseqs_nj     = asBool(params.containsKey('run_mmseqs_nj') ? params.run_mmseqs_nj : false, false)
     def do_mmseqs_log_nj = asBool(params.containsKey('run_mmseqs_log_nj') ? params.run_mmseqs_log_nj : false, false)
     def do_msa_nj        = asBool(params.containsKey('run_msa_nj') ? params.run_msa_nj : true, true)
@@ -116,12 +117,21 @@ workflow {
     def ch_nni_inputs = Channel.empty()
     def nni_suffix = (params.containsKey('nj_spr') && params.nj_spr) ? 'NNI+SPR' : 'NNI'
 
-    // 1. PWA+NJ (Needleman-Wunsch)
+    // 1. PWA+NJ (Needleman-Wunsch Global)
     if (do_pwa_nj) {
         RUN_PWA_NJ(ch_sim_data)
         ch_all_csvs = ch_all_csvs.mix(RUN_PWA_NJ.out.csv)
         if (do_nj_nni) {
             ch_nni_inputs = ch_nni_inputs.mix(RUN_PWA_NJ.out.nni_input.map { it + ['pwa', "PWA+NJ+${nni_suffix}"] })
+        }
+    }
+
+    // 1.2 PWA_LOCAL+NJ (Smith-Waterman Local)
+    if (do_pwa_local_nj) {
+        RUN_PWA_LOCAL_NJ(ch_sim_data)
+        ch_all_csvs = ch_all_csvs.mix(RUN_PWA_LOCAL_NJ.out.csv)
+        if (do_nj_nni) {
+            ch_nni_inputs = ch_nni_inputs.mix(RUN_PWA_LOCAL_NJ.out.nni_input.map { it + ['pwa_local', "PWA_LOCAL+NJ+${nni_suffix}"] })
         }
     }
 

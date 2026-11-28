@@ -35,35 +35,35 @@ try:
 except Exception as e:
     raise RuntimeError(f"Failed to load BLOSUM62 matrix from Biopython: {e}")
 
-def create_aligner(gap_open=10.0, gap_extend=0.5):
+def create_aligner(gap_open=10.0, gap_extend=0.5, mode="global"):
     """
     Creates and configures a C-accelerated Bio.Align.PairwiseAligner.
-    Uses affine gap scoring matching standard Needleman-Wunsch:
-    Gap penalty = gap_open + k * gap_extend
+    Uses affine gap scoring: Gap penalty = gap_open + k * gap_extend.
     """
     aligner = PairwiseAligner()
-    aligner.mode = 'global'
+    aligner.mode = mode
     aligner.substitution_matrix = _BLOSUM62
     aligner.open_gap_score = -abs(gap_open)
     aligner.extend_gap_score = -abs(gap_extend)
     return aligner
 
-_THREAD_LOCAL_ALIGNER = None
+_THREAD_LOCAL_ALIGNER = {}
 
-def get_aligner(gap_open=10.0, gap_extend=0.5):
+def get_aligner(gap_open=10.0, gap_extend=0.5, mode="global"):
     """Retrieves or creates a cached PairwiseAligner instance."""
-    global _THREAD_LOCAL_ALIGNER
-    if _THREAD_LOCAL_ALIGNER is None:
-        _THREAD_LOCAL_ALIGNER = create_aligner(gap_open, gap_extend)
-    return _THREAD_LOCAL_ALIGNER
+    key = (float(gap_open), float(gap_extend), mode)
+    if key not in _THREAD_LOCAL_ALIGNER:
+        _THREAD_LOCAL_ALIGNER[key] = create_aligner(gap_open, gap_extend, mode=mode)
+    return _THREAD_LOCAL_ALIGNER[key]
 
-def needleman_wunsch(seq1, seq2, aligner=None, gap_open=10.0, gap_extend=0.5):
+def needleman_wunsch(seq1, seq2, aligner=None, gap_open=10.0, gap_extend=0.5, mode="global"):
     """
-    Needleman-Wunsch global alignment using Biopython's C-accelerated PairwiseAligner.
+    Pairwise alignment (global Needleman-Wunsch or local Smith-Waterman)
+    using Biopython's C-accelerated PairwiseAligner.
     Returns (aligned_seq1, aligned_seq2).
     """
     if aligner is None:
-        aligner = get_aligner(gap_open=gap_open, gap_extend=gap_extend)
+        aligner = get_aligner(gap_open=gap_open, gap_extend=gap_extend, mode=mode)
 
     alignments = aligner.align(seq1, seq2)
     best_alignment = alignments[0]
@@ -264,11 +264,11 @@ def run_nj_tool(matrix_file: str, outtree_file: str, tool: str = "rapidnj") -> N
         raise RuntimeError(f"NJ inference failed with {tool} and Biopython fallback: {e}")
 
 def _compute_single_pair(
-    args_tuple: Tuple[int, int, str, str, float, float, str, float]
+    args_tuple: Tuple[int, int, str, str, float, float, str, float, str]
 ) -> Tuple[int, int, float]:
     """Worker function for parallel pairwise distance computation."""
-    i, j, s1, s2, gap_open, gap_extend, dist_model, alpha = args_tuple
-    al1, al2 = needleman_wunsch(s1, s2, gap_open=gap_open, gap_extend=gap_extend)
+    i, j, s1, s2, gap_open, gap_extend, dist_model, alpha, align_mode = args_tuple
+    al1, al2 = needleman_wunsch(s1, s2, gap_open=gap_open, gap_extend=gap_extend, mode=align_mode)
     d = calculate_distance(al1, al2, dist_model=dist_model, alpha=alpha)
     return (i, j, d)
 
@@ -290,6 +290,7 @@ def main() -> None:
     parser.add_argument("--sensitivity", type=float, default=7.5, help="MMseqs2 sensitivity -s for mmseqs_* models (default: 7.5)")
     parser.add_argument("--epsilon", type=float, default=1e-4, help="Epsilon floor for mmseqs_log distance (default: 1e-4)")
     parser.add_argument("--tool", choices=["rapidnj", "fastme"], default="rapidnj", help="NJ software to use (default: rapidnj)")
+    parser.add_argument("--align_mode", choices=["global", "local"], default="global", help="Pairwise alignment mode: global (NW) or local (SW) (default: global)")
     parser.add_argument("--threads", type=int, default=1, help="Number of parallel CPU workers for pairwise alignments (default: 1)")
     args = parser.parse_args()
 
@@ -328,7 +329,7 @@ def main() -> None:
         if args.threads > 1 and N >= 16:
             # Multi-process parallel computation for large taxa counts
             pair_tasks = [
-                (i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha)
+                (i, j, seqs[i], seqs[j], args.gap_open, args.gap_extend, args.dist_model, args.alpha, args.align_mode)
                 for i in range(N)
                 for j in range(i + 1, N)
             ]
@@ -340,12 +341,12 @@ def main() -> None:
                     dist_matrix[j][i] = d
         else:
             # Direct C-accelerated single-process computation (avoids IPC/serialization overhead)
-            aligner = get_aligner(gap_open=args.gap_open, gap_extend=args.gap_extend)
+            aligner = get_aligner(gap_open=args.gap_open, gap_extend=args.gap_extend, mode=args.align_mode)
             for i in range(N):
                 s1 = seqs[i]
                 for j in range(i + 1, N):
                     s2 = seqs[j]
-                    al1, al2 = needleman_wunsch(s1, s2, aligner=aligner, gap_open=args.gap_open, gap_extend=args.gap_extend)
+                    al1, al2 = needleman_wunsch(s1, s2, aligner=aligner, gap_open=args.gap_open, gap_extend=args.gap_extend, mode=args.align_mode)
                     d = calculate_distance(al1, al2, dist_model=args.dist_model, alpha=args.alpha)
                     dist_matrix[i][j] = d
                     dist_matrix[j][i] = d

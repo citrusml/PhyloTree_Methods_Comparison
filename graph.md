@@ -6,14 +6,15 @@
 - **Taxa 数 ($N$)**: `32`
 - **配列長 ($L$)**: `500`
 - **Indel 率 / 時計モデル / LBA**: `indel = 0.1`, `nelsi v = 0.6`, `lba_ratio = 1.0` (`1*`), `100 rep`
-- **対象手法（7項目）**:
+- **対象手法（8項目）**:
   1. `MSA+ML`（IQ-TREE 2、モデル推定 / `MFP`）
   2. `MSA+ML`（IQ-TREE 2、モデル指定: 正解モデル `WAG+G4`）※ FastTree ではなく **IQ-TREE 2 が必須**
   3. `MSA+NJ`（`poisson`）
-  4. `PSA+NJ`（`poisson`、`BLOSUM62, open = 10, extend = 1`）
-  5. `PSA+NJ`（`sss linear`）
-  6. `GS`（`poisson`）
-  7. `NJ + FastME (NNI+SPR)`（上記 `MSA+NJ` / `PSA+NJ` の距離行列に対する FastME の NNI+SPR 探索）
+  4. `PSA+NJ`（`global` / Needleman-Wunsch, `poisson`, `BLOSUM62, open = 10, extend = 1`）
+  5. `PSA+NJ`（`local` / Smith-Waterman, `poisson`, `BLOSUM62, open = 10, extend = 1`）
+  6. `PSA+NJ`（`sss linear` / MMseqs2 local）
+  7. `GS`（`poisson`）
+  8. `NJ + FastME (NNI+SPR)`（上記 `MSA+NJ` / `PSA+NJ` 各距離行列に対する FastME の NNI+SPR 探索）
 
 > **方針**: Taxa 数・配列長・NELSI $v$・LBA の各比較では、上記のデフォルト条件から**対象パラメータのみを変更したデータ**を使用する。
 
@@ -30,7 +31,8 @@
     - `PSA+NJ (poisson, BLOSUM62 open=10 extend=1)` → `Poisson_NJ`
     - `PSA+NJ (sss linear)` → `SSS_Linear_NJ`
     - `GS (poisson)` → `GS_Poisson`
-- **存在しないデータ（3手法）**:
+- **存在しないデータ（4手法）**:
+  - `PSA+NJ`（`local` / Smith-Waterman, `poisson`）
   - `MSA+ML`（IQ-TREE 2: `MFP`）および `MSA+ML`（IQ-TREE 2: `WAG+G4`）※ `MSA_ML` は FastTree `-wag -gamma` のみ
   - `NJ + FastME (NNI+SPR)`（全距離行列）※ `SSS_Linear_FastME_NNI`（NNI のみ）しか存在しない
 
@@ -87,7 +89,7 @@
 - `graph/existing_joining_summary_by_condition.csv`（`JoiningBasedOnAdditivity/results/nelsi_v06_v10/summary_by_condition.csv` のコピー）
 
 ### 2. Nextflow 設定ファイル（`next_configs/graph_benchmark/`）
-- `next_configs/graph_benchmark/base_small_medium.config`: $N \le 64$ 用デフォルト設定（$D \in [0.1..3.0]$, $N=32$, $L=500$, `indel=0.1`, `nelsi_v=0.6`, `lba_ratio=1.0`, `100 rep`, 全 7 手法有効、`BLOSUM62 open=10 extend=1`, `nj_spr=true`）
+- `next_configs/graph_benchmark/base_small_medium.config`: $N \le 64$ 用デフォルト設定（$D \in [0.1..3.0]$, $N=32$, $L=500$, `indel=0.1`, `nelsi_v=0.6`, `lba_ratio=1.0`, `100 rep`, 全 8 手法有効（`PWA_LOCAL+NJ` 含む）, `BLOSUM62 open=10 extend=1`, `nj_spr=true`）
 - `next_configs/graph_benchmark/large_taxa_128_256.config`: $N=128, 256$ 用設定（`chunk_size=2`、メモリ・実行時間枠を拡張）
 
 ### 3. 実行スクリプト（`run_scripts/graph_benchmark/`）
