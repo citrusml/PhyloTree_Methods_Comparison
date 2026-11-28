@@ -26,3 +26,4 @@ bin/mafft
 research2/test_run/
 dataset/nelsi*
 data/*
+/graph/
